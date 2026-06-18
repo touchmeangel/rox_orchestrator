@@ -457,9 +457,9 @@ def usage():
         Panel(
             "[bold]ignite[/bold] — EVM security audit agent (https://github.com/touchmeangel/ignite)\n\n"
             "  [green]python ignite.py foundry .[/green]\n"
-            "  python ignite.py foundry /path/to/project\n"
-            "  python ignite.py foundry . [dim]--reconfigure[/dim]\n"
-            "  python ignite.py foundry . [dim]--update[/dim]\n\n"
+            "   ignite foundry /path/to/project\n"
+            "   ignite foundry . [dim]--reconfigure[/dim]\n"
+            "   ignite foundry . [dim]--update[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
             title="Usage",
             box=box.ROUNDED,
