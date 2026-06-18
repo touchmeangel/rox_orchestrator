@@ -370,7 +370,7 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         "--project-path",
         "/project",
         "--output",
-        "/project/audit_results.json",
+        "/project/agent_results.json",
     ]
     console.print(f"\n  [dim]$ {' '.join(cmd)}[/dim]\n")
 
@@ -410,87 +410,10 @@ SEVERITY_COLOR = {
 }
 
 
-def print_report(project_path: Path):
-    results_path = project_path / "audit_results.json"
-    report_path = project_path / "audit_report.md"
-
-    if not results_path.exists():
-        console.print("  [yellow]⚠[/yellow]  audit_results.json not found")
-        return
-
-    data = json.loads(results_path.read_text())
-
-    buckets: dict[str, list] = {
-        "high": [],
-        "medium": [],
-        "low": [],
-        "informational": [],
-    }
-    for step_data in data.get("steps", {}).values():
-        for sev in buckets:
-            buckets[sev].extend(step_data.get("findings", {}).get(sev, []))
-
-    total = sum(len(v) for v in buckets.values())
-    h, m = len(buckets["high"]), len(buckets["medium"])
-
-    project_name = project_path.name
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    header_text = Text.assemble(
-        ("SECURITY AUDIT REPORT\n", "bold"),
-        (f"Project: {project_name}   ", ""),
-        (f"Date: {date_str}\n", "dim"),
-        (f"{h} High  ·  {m} Medium  ·  {total} total", "bold"),
-    )
-    console.print(Panel(header_text, box=box.DOUBLE_EDGE, padding=(0, 2)))
-
-    if total == 0:
-        console.print("\n  [bold green]No findings detected.[/bold green]\n")
-        return
-
-    for sev, items in buckets.items():
-        if not items:
-            continue
-        color = SEVERITY_COLOR.get(sev, "")
-        prefix = sev[0].upper()
-        label = sev.upper()
-
-        console.print(
-            f"\n  [{color}]● {label}[/{color}]  ({len(items)} finding{'s' if len(items) != 1 else ''})\n"
-        )
-
-        tbl = Table(
-            box=box.SIMPLE,
-            show_header=True,
-            header_style="dim",
-            padding=(0, 1),
-            show_edge=False,
-        )
-        tbl.add_column("ID", style="dim", width=5, no_wrap=True)
-        tbl.add_column("Description", style="", min_width=36)
-        tbl.add_column("Location", style="dim", width=22, no_wrap=True)
-
-        for idx, item in enumerate(items, 1):
-            row_id = f"{prefix}-{idx:02d}"
-            desc = (
-                item.get("title") or item.get("check") or item.get("description", "—")
-            )[:72]
-            location = item.get("location", "—")[:28]
-            tbl.add_row(row_id, desc, location)
-
-        console.print(tbl)
-
-    console.print()
-    if report_path.exists():
-        console.print(f"  [green]Full report →[/green] {report_path}")
-    else:
-        console.print("  [yellow]audit_report.md not generated[/yellow]")
-    console.print()
-
-
 def usage():
     console.print(
         Panel(
-            "[bold]ignite[/bold] — EVM security audit agent (https://github.com/touchmeangel/ignite_agent)\n\n"
+            "[bold]ignite[/bold] — EVM security research agent (https://github.com/touchmeangel/ignite_agent)\n\n"
             "  [green]ignite foundry .[/green]\n"
             "  ignite foundry /path/to/project\n"
             "  ignite foundry . [dim]--reconfigure[/dim]\n"
@@ -565,14 +488,17 @@ def main():
             pull_image(manager)
 
         console.rule()
-        console.print(f"\n  [bold]Running audit …[/bold]  [dim]{project_path}[/dim]\n")
+        console.print(f"\n  [bold]Running agent[/bold]  [dim]{project_path}[/dim]\n")
 
         rc = run_container(manager, project_path, config_path)
         if rc != 0:
             console.print(f"  [red]✗[/red]  Container exited with code {rc}")
 
-        print_report(project_path)
-
+        console.print(f"\n  [green]✔[/green] Agent finished successfully.")
+        results_path = project_path / "agent_results.json"
+        if results_path.exists():
+            console.print(f"  [green]✔[/green] Report updated → {results_path}\n")
+            
     except KeyboardInterrupt:
         handle_abort()
 
