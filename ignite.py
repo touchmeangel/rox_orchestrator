@@ -456,10 +456,10 @@ def usage():
     console.print(
         Panel(
             "[bold]ignite[/bold] — EVM security audit agent (https://github.com/touchmeangel/ignite)\n\n"
-            "  [green]python ignite.py foundry .[/green]\n"
-            "   ignite foundry /path/to/project\n"
-            "   ignite foundry . [dim]--reconfigure[/dim]\n"
-            "   ignite foundry . [dim]--update[/dim]\n\n"
+            "  [green]ignite foundry .[/green]\n"
+            "  ignite foundry /path/to/project\n"
+            "  ignite foundry . [dim]--reconfigure[/dim]\n"
+            "  ignite foundry . [dim]--update[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
             title="Usage",
             box=box.ROUNDED,
