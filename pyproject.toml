@@ -1,3 +1,12 @@
+[project]
+name = "ignite-ux"
+version = "0.1.0"
+description = "Ignite CLI  tools"
+requires-python = ">=3.11"
+
+[project.scripts]
+ignite = "ignite:main"
+
 [tool.ruff]
 line-length = 88
 target-version = "py311"

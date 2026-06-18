@@ -415,7 +415,7 @@ def print_report(project_path: Path):
 def usage():
     console.print(
         Panel(
-            "[bold]ignite[/bold] — Solidity Audit Agent\n\n"
+            "[bold]ignite[/bold] — EVM security audit agent (https://github.com/touchmeangel/ignite)\n\n"
             "  [green]python ignite.py foundry .[/green]\n"
             "  python ignite.py foundry /path/to/project\n"
             "  python ignite.py foundry . [dim]--reconfigure[/dim]\n"
