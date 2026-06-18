@@ -442,7 +442,7 @@ def print_report(project_path: Path):
 def usage():
     console.print(
         Panel(
-            "[bold]ignite[/bold] — EVM security audit agent (https://github.com/touchmeangel/ignite)\n\n"
+            "[bold]ignite[/bold] — EVM security audit agent (https://github.com/touchmeangel/ignite_agent)\n\n"
             "  [green]ignite foundry .[/green]\n"
             "  ignite foundry /path/to/project\n"
             "  ignite foundry . [dim]--reconfigure[/dim]\n"
