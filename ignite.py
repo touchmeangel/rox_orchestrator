@@ -51,7 +51,7 @@ PROVIDERS = {
             "claude-opus-4-7",
             "claude-sonnet-4-6",
             "claude-opus-4-6",
-            "claude-haiku-4.5"
+            "claude-haiku-4.5",
         ],
         "env_key": "ANTHROPIC_API_KEY",
         "provider_str": "anthropic",
@@ -373,7 +373,33 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         "/project/audit_results.json",
     ]
     console.print(f"\n  [dim]$ {' '.join(cmd)}[/dim]\n")
-    return subprocess.run(cmd).returncode  # noqa: S603, S607
+
+    process = subprocess.Popen(  # noqa: S603
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    )
+
+    try:
+        with console.status("[#fe8019 bold]Initializing container...[/]") as status:
+            is_first_line = True
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+                if line:
+                    if is_first_line:
+                        status.stop()
+                        is_first_line = False
+                    console.print(line.rstrip())
+
+    except KeyboardInterrupt:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        raise
+
+    return process.returncode
 
 
 SEVERITY_COLOR = {
@@ -477,7 +503,6 @@ def usage():
 
 
 def main():
-    # ── Wrap entire loop in a standard KeyboardInterrupt block ────────────────
     try:
         args = sys.argv[1:]
         flags = {a for a in args if a.startswith("--")}
