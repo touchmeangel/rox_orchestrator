@@ -1,11 +1,3 @@
-"""
-Usage:
-    python ignite.py foundry .
-    python ignite.py foundry /path/to/project
-    python ignite.py foundry . --reconfigure
-    python ignite.py foundry . --update       # Pulls the latest docker image
-"""
-
 import json
 import os
 import platform
