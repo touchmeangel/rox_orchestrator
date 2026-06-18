@@ -16,8 +16,6 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-# ── Configuration ─────────────────────────────────────────────────────────────
-
 IGNITE_HOME = Path.home() / ".ignite"
 
 console = Console()
@@ -35,8 +33,6 @@ Q_STYLE = Style(
     ]
 )
 
-# ── Manager registry ──────────────────────────────────────────────────────────
-
 MANAGERS: dict[str, dict] = {
     "foundry": {
         "label": "Foundry",
@@ -46,8 +42,6 @@ MANAGERS: dict[str, dict] = {
         "image": "touchmeangel/ignite_agent:latest",
     }
 }
-
-# ── Provider / model registry ──────────────────────────────────────────────────
 
 PROVIDERS = {
     "anthropic": {
@@ -104,8 +98,6 @@ FALLBACK_OLLAMA_MODELS = [
     "codellama:13b",
 ]
 
-# ── Detection helpers ──────────────────────────────────────────────────────────
-
 
 def docker_running() -> bool:
     docker_path = shutil.which("docker")
@@ -130,9 +122,6 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
         return []
 
 
-# ── Interactive setup ──────────────────────────────────────────────────────────
-
-
 def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
     provider_label = questionary.select(
         f"Select provider for [{role_name.upper()}] engine:",
@@ -153,7 +142,6 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
             or prov["base_url"]
         )
 
-        # Determine accessible Docker routing override context
         container_url = base_url
         if "localhost" in base_url or "127.0.0.1" in base_url:
             container_url = "http://host.docker.internal:11434"
@@ -171,7 +159,6 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
             )
         return prov["provider_str"], model, container_url
 
-    # Cloud Providers Selection List Pipeline
     model = questionary.select(
         "Select specific model variant:",
         choices=prov["models"],
@@ -204,21 +191,18 @@ def run_setup(manager: str) -> dict:
     env_path = IGNITE_HOME / ".env"
     IGNITE_HOME.mkdir(parents=True, exist_ok=True)
 
-    # ── STEP 1: Flash Configuration ──
     console.print()
     console.rule(
         "[bold cyan]STEP 1 — Flash Model (Fast routing tasks, sub-scans)[/bold cyan]"
     )
     f_provider, f_model, f_base_url = _ask_model_profile("flash")
 
-    # ── STEP 2: Reasoning Configuration ──
     console.print()
     console.rule(
         "[bold magenta]STEP 2 — Reasoning Model (Deep analysis, comprehensive logic reviews)[/bold magenta]"
     )
     r_provider, r_model, r_base_url = _ask_model_profile("reasoning")
 
-    # ── STEP 3: API Pipeline Key Management ──
     console.print()
     console.rule(
         "[bold yellow]STEP 3 — Security Credentials & Token Storage[/bold yellow]"
@@ -278,9 +262,6 @@ def run_setup(manager: str) -> dict:
     return config
 
 
-# ── Docker Execution ──────────────────────────────────────────────────────────
-
-
 def load_env_vars() -> dict[str, str]:
     env_path = IGNITE_HOME / ".env"
     skip = {"PROJECT_PATH"}
@@ -325,7 +306,6 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
     if platform.system() != "Windows":
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
 
-    # Base Docker command configuration
     cmd = [
         docker_path,
         "run",
@@ -348,8 +328,6 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
     console.print(f"\n  [dim]$ {' '.join(cmd)}[/dim]\n")
     return subprocess.run(cmd).returncode  # noqa: S603, S607
 
-
-# ── Report display ─────────────────────────────────────────────────────────────
 
 SEVERITY_COLOR = {
     "high": "bold red",
@@ -436,9 +414,6 @@ def print_report(project_path: Path):
     console.print()
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
-
-
 def usage():
     console.print(
         Panel(
@@ -480,8 +455,6 @@ def main():
         console.print(f"  [red]✗[/red]  Path not found: {project_path}")
         sys.exit(1)
 
-    # ── Status & Setup ────────────────────────────────────────────────────────
-
     config_path = IGNITE_HOME / "config.json"
     console.print()
 
@@ -513,8 +486,6 @@ def main():
         console.print("  [green]✔[/green]  Docker available")
 
         run_setup(manager)
-
-    # ── Docker Execution ──────────────────────────────────────────────────────
 
     if do_update:
         pull_image(manager)
