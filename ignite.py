@@ -437,7 +437,8 @@ def usage():
             "  [green]ignite foundry .[/green]\n"
             "  ignite foundry /path/to/project\n"
             "  ignite foundry . [dim]--reconfigure[/dim]\n"
-            "  ignite foundry . [dim]--update[/dim]\n\n"
+            "  ignite foundry . [dim]--update[/dim]\n"
+            "  ignite foundry . [dim]--accept-rw-risk[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
             title="Usage",
             box=box.ROUNDED,
@@ -453,6 +454,7 @@ def main():
 
         reconfigure = "--reconfigure" in flags
         do_update = "--update" in flags
+        accept_rw_risk = "--accept-rw-risk" in flags
 
         if len(positional) < 2:
             usage()
@@ -507,7 +509,8 @@ def main():
         if do_update:
             pull_image(manager)
 
-        confirm_folder_access(str(project_path))
+        if not accept_rw_risk:
+            confirm_folder_access(str(project_path))
 
         console.rule()
         console.print(f"\n  [bold]Running agent[/bold]  [dim]{project_path}[/dim]\n")
