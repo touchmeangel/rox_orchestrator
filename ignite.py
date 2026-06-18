@@ -108,6 +108,14 @@ FALLBACK_OLLAMA_MODELS = [
 CUSTOM_MODEL_LABEL = "[ enter custom model id ]"
 
 
+def handle_abort():
+    """Helper to print a clean exit message when the user interrupts the execution."""
+    console.print(
+        "\n\n  [yellow]⚠[/yellow]  [bold yellow]Execution cancelled by user. Exiting...[/bold yellow]\n"
+    )
+    sys.exit(130)  # 130 is the standard exit code for SIGINT (Ctrl+C)
+
+
 def docker_running() -> bool:
     docker_path = shutil.which("docker")
     if not docker_path:
@@ -138,18 +146,18 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
         style=Q_STYLE,
     ).ask()
     if provider_label is None:
-        sys.exit(0)
+        handle_abort()
 
     prov_key = next(k for k, v in PROVIDERS.items() if v["label"] == provider_label)
     prov = PROVIDERS[prov_key]
 
     if prov_key == "ollama":
-        base_url = (
-            questionary.text(
-                "Ollama endpoint address:", default=prov["base_url"], style=Q_STYLE
-            ).ask()
-            or prov["base_url"]
-        )
+        base_url = questionary.text(
+            "Ollama endpoint address:", default=prov["base_url"], style=Q_STYLE
+        ).ask()
+        if base_url is None:
+            handle_abort()
+        base_url = base_url or prov["base_url"]
 
         container_url = base_url
         if "localhost" in base_url or "127.0.0.1" in base_url:
@@ -161,27 +169,32 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
         model = questionary.select(
             "Select model tag:", choices=choices, style=Q_STYLE
         ).ask()
-        if model == CUSTOM_MODEL_LABEL or model is None:
-            model = (
-                questionary.text("Model tag (e.g. llama3.1:8b):", style=Q_STYLE).ask()
-                or FALLBACK_OLLAMA_MODELS[0]
-            )
+        if model is None:
+            handle_abort()
+
+        if model == CUSTOM_MODEL_LABEL:
+            model = questionary.text(
+                "Model tag (e.g. llama3.1:8b):", style=Q_STYLE
+            ).ask()
+            if model is None:
+                handle_abort()
+            model = model or FALLBACK_OLLAMA_MODELS[0]
         return prov["provider_str"], model, container_url
 
     if prov_key == "custom_openai_compatible":
-        base_url = (
-            questionary.text(
-                "Target API Base URL endpoint:", default=prov["base_url"], style=Q_STYLE
-            ).ask()
-            or prov["base_url"]
-        )
+        base_url = questionary.text(
+            "Target API Base URL endpoint:", default=prov["base_url"], style=Q_STYLE
+        ).ask()
+        if base_url is None:
+            handle_abort()
+        base_url = base_url or prov["base_url"]
 
-        model = (
-            questionary.text(
-                "Target model tag (e.g. openrouter/auto, deepseek-chat):", style=Q_STYLE
-            ).ask()
-            or "gpt-4o"
-        )
+        model = questionary.text(
+            "Target model tag (e.g. openrouter/auto, deepseek-chat):", style=Q_STYLE
+        ).ask()
+        if model is None:
+            handle_abort()
+        model = model or "gpt-4o"
 
         return prov["provider_str"], model, base_url
 
@@ -191,12 +204,12 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
         style=Q_STYLE,
     ).ask()
     if model is None:
-        sys.exit(0)
+        handle_abort()
 
     if model == CUSTOM_MODEL_LABEL:
         model = questionary.text("Model signature string:", style=Q_STYLE).ask()
         if not model:
-            sys.exit(0)
+            handle_abort()
 
     return prov["provider_str"], model, prov.get("base_url")
 
@@ -209,7 +222,10 @@ def _ask_api_key(provider_str: str) -> str:
     if not env_key:
         return ""
 
-    key = questionary.password(f"{env_key}:", style=Q_STYLE).ask() or ""
+    key = questionary.password(f"{env_key}:", style=Q_STYLE).ask()
+    if key is None:
+        handle_abort()
+
     if not key:
         console.print(
             f"  [yellow]⚠[/yellow]  Value omitted — initialize {env_key} inside environment values later"
@@ -461,74 +477,79 @@ def usage():
 
 
 def main():
-    args = sys.argv[1:]
-    flags = {a for a in args if a.startswith("--")}
-    positional = [a for a in args if not a.startswith("--")]
+    # ── Wrap entire loop in a standard KeyboardInterrupt block ────────────────
+    try:
+        args = sys.argv[1:]
+        flags = {a for a in args if a.startswith("--")}
+        positional = [a for a in args if not a.startswith("--")]
 
-    reconfigure = "--reconfigure" in flags
-    do_update = "--update" in flags
+        reconfigure = "--reconfigure" in flags
+        do_update = "--update" in flags
 
-    if len(positional) < 2:
-        usage()
-        sys.exit(1)
+        if len(positional) < 2:
+            usage()
+            sys.exit(1)
 
-    manager = positional[0].lower()
-    project_path = Path(positional[1]).resolve()
+        manager = positional[0].lower()
+        project_path = Path(positional[1]).resolve()
 
-    if manager not in MANAGERS:
-        console.print(
-            f"  [red]✗[/red]  Unknown manager '{manager}'. "
-            f"Available: {', '.join(MANAGERS)}"
-        )
-        sys.exit(1)
-
-    if not project_path.exists():
-        console.print(f"  [red]✗[/red]  Path not found: {project_path}")
-        sys.exit(1)
-
-    config_path = IGNITE_HOME / "config.json"
-    console.print()
-
-    if config_path.exists() and not reconfigure:
-        cfg = json.loads(config_path.read_text())
-        r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
-        console.print(
-            f"  [green]✔[/green]  Config found  [dim](reasoning: {r_model})[/dim]"
-        )
-    else:
-        if reconfigure:
-            console.print("  [dim]Reconfiguring …[/dim]")
-        else:
-            console.print("  [yellow]No config found.[/yellow]")
-
-        mdef = MANAGERS[manager]
-        if mdef["detect"](project_path):
-            console.print(f"  [green]✔[/green]  Detected {mdef['label']} project")
-        else:
+        if manager not in MANAGERS:
             console.print(
-                f"  [yellow]⚠[/yellow]  No {mdef['label']} config found in {project_path}"
-            )
-
-        if not docker_running():
-            console.print(
-                "  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry."
+                f"  [red]✗[/red]  Unknown manager '{manager}'. "
+                f"Available: {', '.join(MANAGERS)}"
             )
             sys.exit(1)
-        console.print("  [green]✔[/green]  Docker available")
 
-        run_setup(manager)
+        if not project_path.exists():
+            console.print(f"  [red]✗[/red]  Path not found: {project_path}")
+            sys.exit(1)
 
-    if do_update:
-        pull_image(manager)
+        config_path = IGNITE_HOME / "config.json"
+        console.print()
 
-    console.rule()
-    console.print(f"\n  [bold]Running audit …[/bold]  [dim]{project_path}[/dim]\n")
+        if config_path.exists() and not reconfigure:
+            cfg = json.loads(config_path.read_text())
+            r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
+            console.print(
+                f"  [green]✔[/green]  Config found  [dim](reasoning: {r_model})[/dim]"
+            )
+        else:
+            if reconfigure:
+                console.print("  [dim]Reconfiguring …[/dim]")
+            else:
+                console.print("  [yellow]No config found.[/yellow]")
 
-    rc = run_container(manager, project_path, config_path)
-    if rc != 0:
-        console.print(f"  [red]✗[/red]  Container exited with code {rc}")
+            mdef = MANAGERS[manager]
+            if mdef["detect"](project_path):
+                console.print(f"  [green]✔[/green]  Detected {mdef['label']} project")
+            else:
+                console.print(
+                    f"  [yellow]⚠[/yellow]  No {mdef['label']} config found in {project_path}"
+                )
 
-    print_report(project_path)
+            if not docker_running():
+                console.print(
+                    "  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry."
+                )
+                sys.exit(1)
+            console.print("  [green]✔[/green]  Docker available")
+
+            run_setup(manager)
+
+        if do_update:
+            pull_image(manager)
+
+        console.rule()
+        console.print(f"\n  [bold]Running audit …[/bold]  [dim]{project_path}[/dim]\n")
+
+        rc = run_container(manager, project_path, config_path)
+        if rc != 0:
+            console.print(f"  [red]✗[/red]  Container exited with code {rc}")
+
+        print_report(project_path)
+
+    except KeyboardInterrupt:
+        handle_abort()
 
 
 if __name__ == "__main__":
