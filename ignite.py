@@ -411,7 +411,7 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
                     if is_first_line:
                         status.stop()
                         is_first_line = False
-                    console.print(line.rstrip())
+                    console.print(line.rstrip(), markup=False)
 
     except KeyboardInterrupt:
         process.terminate()
