@@ -232,6 +232,26 @@ def _ask_api_key(provider_str: str) -> str:
         )
     return key
 
+def confirm_folder_access(project_path: str) -> None:
+    """Displays a prominent security warning regarding folder file modifications."""
+    warning_text = (
+        f"[bold red]⚠️  WARNING: AGENT FILE SYSTEM ACCESS[/bold red]\n\n"
+        f"You are about to run an autonomous agent on: [cyan]{project_path}[/cyan]\n"
+        f"The agent will have full permissions to [bold yellow]read, write, and execute tools[/bold yellow] "
+        f"inside this directory.\n\n"
+        f"[dim]Ensure you have committed any sensitive local changes to git before proceeding.[/dim]"
+    )
+    
+    console.print(Panel(warning_text, border_style="red", padding=(1, 2)))
+    
+    confirmed = questionary.confirm(
+        f"Do you want to grant the agent write permissions to {project_path} directory?",
+        default=False
+    ).ask()
+    
+    if not confirmed:
+        console.print("\n  [yellow]⚠[/yellow] Execution aborted by user. Safe choice!\n")
+        sys.exit(0)
 
 def run_setup(manager: str) -> dict:
     config_path = IGNITE_HOME / "config.json"
@@ -487,17 +507,35 @@ def main():
         if do_update:
             pull_image(manager)
 
+        confirm_folder_access(str(project_path))
+
         console.rule()
         console.print(f"\n  [bold]Running agent[/bold]  [dim]{project_path}[/dim]\n")
 
         rc = run_container(manager, project_path, config_path)
         if rc != 0:
-            console.print(f"  [red]✗[/red]  Container exited with code {rc}")
+            console.print(f"\n  [red]✗[/red] [bold red]Container execution failed (exit code {rc}).[/bold red]\n")
+            sys.exit(rc)
+                
+        results_path = project_path / "audit_results.json"
+        
+        completion_text = Text.assemble(
+            ("✨ AUDIT ENGINE PIPELINE COMPLETE\n\n", "bold green"),
+            ("Status:     ", "dim"), ("Active / Success\n", "bold green"),
+            ("Artifacts:  ", "dim"), (f"{results_path.name}\n", "cyan"),
+            ("Location:   ", "dim"), (f"{project_path}", "italic dim")
+        )
 
-        console.print(f"\n  [green]✔[/green] Agent finished successfully.")
-        results_path = project_path / "agent_results.json"
-        if results_path.exists():
-            console.print(f"  [green]✔[/green] Report updated → {results_path}\n")
+        console.print(
+            Panel(
+                completion_text, 
+                box=box.ROUNDED, 
+                border_style="green", 
+                padding=(1, 2),
+                expand=False
+            )
+        )
+        console.print()
             
     except KeyboardInterrupt:
         handle_abort()
