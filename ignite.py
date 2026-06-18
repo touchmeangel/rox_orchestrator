@@ -45,23 +45,23 @@ MANAGERS: dict[str, dict] = {
 
 PROVIDERS = {
     "anthropic": {
-        "label": "Anthropic (Claude)",
+        "label": "Anthropic",
         "models": [
-            "claude-sonnet-4-5",
-            "claude-opus-4",
-            "claude-opus-4-5",
-            "claude-haiku-3-5",
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-sonnet-4-6",
+            "claude-opus-4-6",
+            "claude-haiku-4.5"
         ],
         "env_key": "ANTHROPIC_API_KEY",
         "provider_str": "anthropic",
         "base_url": None,
     },
     "openai": {
-        "label": "OpenAI (GPT / o-series)",
+        "label": "OpenAI",
         "models": [
-            "gpt-4.1",
-            "o3",
-            "o4-mini",
+            "gpt-5.5",
+            "gpt-5",
             "gpt-4.1-mini",
             "gpt-4o",
         ],
@@ -70,11 +70,12 @@ PROVIDERS = {
         "base_url": None,
     },
     "google": {
-        "label": "Google (Gemini)",
+        "label": "Google",
         "models": [
-            "gemini-2.5-pro",
+            "gemini-3.5-flash",
+            "gemini-3.1-pro",
+            "gemini-3.1-flash-lite",
             "gemini-2.5-flash",
-            "gemini-2.0-flash",
         ],
         "env_key": "GOOGLE_API_KEY",
         "provider_str": "google",
@@ -102,7 +103,6 @@ FALLBACK_OLLAMA_MODELS = [
     "deepseek-coder:33b",
     "deepseek-coder:6.7b",
     "llama3.1:8b",
-    "codellama:13b",
 ]
 
 CUSTOM_MODEL_LABEL = "[ enter custom model id ]"
@@ -190,7 +190,7 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
         base_url = base_url or prov["base_url"]
 
         model = questionary.text(
-            "Target model tag (e.g. openrouter/auto, deepseek-chat):", style=Q_STYLE
+            "Target model id (e.g. openrouter/auto, deepseek-chat):", style=Q_STYLE
         ).ask()
         if model is None:
             handle_abort()
