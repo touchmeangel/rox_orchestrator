@@ -43,7 +43,7 @@ MANAGERS: dict[str, dict] = {
         "detect": lambda p: (
             (p / "foundry.toml").exists() or (p / "forge.toml").exists()
         ),
-        "image": "touchmeangel/ignite:latest",
+        "image": "touchmeangel/ignite_agent:latest",
     }
 }
 
