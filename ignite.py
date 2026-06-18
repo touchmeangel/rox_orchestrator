@@ -43,10 +43,6 @@ MANAGERS: dict[str, dict] = {
     }
 }
 
-# "models" below are just suggestions shown in the picker, not a pinned
-# allow-list — every provider also exposes a free-text "custom model id"
-# entry so newly released models can be used immediately without a code
-# change (mirrors how Claude Code lets you type any model string).
 PROVIDERS = {
     "anthropic": {
         "label": "Anthropic (Claude)",
@@ -91,6 +87,13 @@ PROVIDERS = {
         "provider_str": "ollama",
         "base_url": "http://localhost:11434",
     },
+    "custom_openai_compatible": {
+        "label": "Custom (OpenAI Compatible Gateway)",
+        "models": [],
+        "env_key": "OPENAI_API_KEY",
+        "provider_str": "openai_compatible",
+        "base_url": "http://localhost:8000/v1",
+    }
 }
 
 FALLBACK_OLLAMA_MODELS = [
@@ -128,24 +131,6 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
         return []
 
 
-def _ask_custom_base_url(current: str | None) -> str | None:
-    """Offer to override a provider's base URL — for proxies, self-hosted
-    gateways, OpenAI-compatible endpoints (OpenRouter, Azure, LiteLLM, vLLM,
-    etc.), or any other alternative provider that speaks the same API shape.
-    """
-    use_custom = questionary.confirm(
-        "Use a custom base URL for this engine? "
-        "(proxy / self-hosted / OpenAI-compatible alternative provider)",
-        default=False,
-        style=Q_STYLE,
-    ).ask()
-    if not use_custom:
-        return current
-
-    entered = questionary.text("Base URL:", default=current or "", style=Q_STYLE).ask()
-    return entered or current
-
-
 def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
     provider_label = questionary.select(
         f"Select provider for [{role_name.upper()}] engine:",
@@ -159,12 +144,9 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
     prov = PROVIDERS[prov_key]
 
     if prov_key == "ollama":
-        base_url = (
-            questionary.text(
-                "Ollama endpoint address:", default=prov["base_url"], style=Q_STYLE
-            ).ask()
-            or prov["base_url"]
-        )
+        base_url = questionary.text(
+            "Ollama endpoint address:", default=prov["base_url"], style=Q_STYLE
+        ).ask() or prov["base_url"]
 
         container_url = base_url
         if "localhost" in base_url or "127.0.0.1" in base_url:
@@ -173,26 +155,24 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
         models = get_ollama_models(base_url)
         choices = (models or FALLBACK_OLLAMA_MODELS) + [CUSTOM_MODEL_LABEL]
 
-        model = questionary.select(
-            "Select model tag:", choices=choices, style=Q_STYLE
-        ).ask()
+        model = questionary.select("Select model tag:", choices=choices, style=Q_STYLE).ask()
         if model == CUSTOM_MODEL_LABEL or model is None:
-            model = (
-                questionary.text(
-                    "Model tag (any tag pulled on this Ollama instance, "
-                    "e.g. llama3.1:8b, mixtral:8x7b):",
-                    style=Q_STYLE,
-                ).ask()
-                or FALLBACK_OLLAMA_MODELS[0]
-            )
+            model = questionary.text("Model tag (e.g. llama3.1:8b):", style=Q_STYLE).ask() or FALLBACK_OLLAMA_MODELS[0]
         return prov["provider_str"], model, container_url
 
-    # Cloud providers (anthropic / openai / google): show suggestions but
-    # always allow a free-text model id, and always allow overriding the
-    # base URL so the same provider entry can point at a compatible
-    # alternative (e.g. an OpenAI-compatible router for "openai").
+    if prov_key == "custom_openai_compatible":
+        base_url = questionary.text(
+            "Target API Base URL endpoint:", default=prov["base_url"], style=Q_STYLE
+        ).ask() or prov["base_url"]
+        
+        model = questionary.text(
+            "Target model tag (e.g. openrouter/auto, deepseek-chat):", style=Q_STYLE
+        ).ask() or "gpt-4o"
+        
+        return prov["provider_str"], model, base_url
+
     model = questionary.select(
-        "Select a model (suggestions below, or enter any model id manually):",
+        "Select a model variant:",
         choices=prov["models"] + [CUSTOM_MODEL_LABEL],
         style=Q_STYLE,
     ).ask()
@@ -200,17 +180,11 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
         sys.exit(0)
 
     if model == CUSTOM_MODEL_LABEL:
-        model = questionary.text(
-            "Model id (any string your provider/endpoint accepts, "
-            "e.g. claude-opus-4-7):",
-            style=Q_STYLE,
-        ).ask()
+        model = questionary.text("Model signature string:", style=Q_STYLE).ask()
         if not model:
             sys.exit(0)
 
-    base_url = _ask_custom_base_url(prov.get("base_url"))
-
-    return prov["provider_str"], model, base_url
+    return prov["provider_str"], model, prov.get("base_url")
 
 
 def _ask_api_key(provider_str: str) -> str:
