@@ -112,18 +112,23 @@ FALLBACK_OLLAMA_MODELS = [
 
 
 def docker_running() -> bool:
-    if not shutil.which("docker"):
+    docker_path = shutil.which("docker")
+    if not docker_path:
         return False
     try:
-        subprocess.run(["docker", "info"], capture_output=True, check=True, timeout=10)
+        subprocess.run(  # noqa: S603
+            [docker_path, "info"], capture_output=True, check=True, timeout=10
+        )
         return True
     except Exception:
         return False
 
 
 def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
+    if not (base_url.startswith("http://") or base_url.startswith("https://")):
+        return []
     try:
-        with urlopen(f"{base_url}/api/tags", timeout=4) as r:
+        with urlopen(f"{base_url}/api/tags", timeout=4) as r:  # noqa: S310
             return [m["name"] for m in json.loads(r.read()).get("models", [])]
     except Exception:
         return []
@@ -306,9 +311,10 @@ def load_env_vars() -> dict[str, str]:
 
 
 def pull_image(manager: str):
+    docker_path = shutil.which("docker") or "docker"
     image = MANAGERS[manager]["image"]
     console.print(f"  [dim]Pulling latest image: {image} …[/dim]")
-    r = subprocess.run(["docker", "pull", image])
+    r = subprocess.run([docker_path, "pull", image])  # noqa: S603, S607
     if r.returncode != 0:
         console.print(
             f"  [red]✗[/red]  Failed to pull {image}. Check your internet or image name."
@@ -318,6 +324,7 @@ def pull_image(manager: str):
 
 
 def run_container(manager: str, project_path: Path, config_path: Path) -> int:
+    docker_path = shutil.which("docker") or "docker"
     image = MANAGERS[manager]["image"]
     env_vars = load_env_vars()
 
@@ -337,7 +344,7 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
 
     cmd = [
-        "docker",
+        docker_path,
         "run",
         "--rm",
         "-v",
@@ -352,7 +359,7 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         image,
     ]
     console.print(f"\n  [dim]$ {' '.join(cmd)}[/dim]\n")
-    return subprocess.run(cmd).returncode
+    return subprocess.run(cmd).returncode  # noqa: S603, S607
 
 
 # ── Report display ─────────────────────────────────────────────────────────────
