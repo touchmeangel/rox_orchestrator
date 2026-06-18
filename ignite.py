@@ -405,15 +405,15 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
             is_first_line = True
             while True:
                 char = process.stdout.read(1)
-                
+
                 if not char and process.poll() is not None:
                     break
-                    
+
                 if char:
                     if is_first_line:
                         status.stop()
                         is_first_line = False
-                    
+
                     sys.stdout.write(char)
                     sys.stdout.flush()
 
