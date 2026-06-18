@@ -2,15 +2,10 @@
 ignite — Solidity Audit Agent
 
 Usage:
-    python ignite.py forge .
-    python ignite.py forge /path/to/project
-    python ignite.py forge . --reconfigure
-    python ignite.py forge . --update       # git pull agent
-
-Two-repo mode (keep agent code private):
-    Set env var IGNITE_FORGE_REPO=https://github.com/you/sol-audit-forge
-    ignite will clone the agent to ~/.ignite/agents/forge/ automatically.
-    Without it: single-repo mode, agent lives next to this file.
+    python ignite.py foundry .
+    python ignite.py foundry /path/to/project
+    python ignite.py foundry . --reconfigure
+    python ignite.py foundry . --update       # Pulls the latest docker image
 """
 
 import json
@@ -23,6 +18,10 @@ from datetime import datetime
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+
+IGNITE_HOME = Path.home() / ".ignite"
 
 # ── Bootstrap rich ────────────────────────────────────────────────────────────
 
@@ -58,25 +57,15 @@ Q_STYLE = Style([
     ("instruction",  "fg:#7c6f64"),
 ])
 
-
-# ── Paths ─────────────────────────────────────────────────────────────────────
-
-IGNITE_HOME = Path.home() / ".ignite"
-IMAGE_PREFIX = "ignite"          # images named ignite-forge, ignite-hardhat, …
-
-
 # ── Manager registry ──────────────────────────────────────────────────────────
 
 MANAGERS: dict[str, dict] = {
-    "forge": {
-        "label":   "Foundry / Forge",
-        "detect":  lambda p: (p / "foundry.toml").exists() or (p / "forge.toml").exists(),
-        "env_var": "IGNITE_FORGE_REPO",   # set to enable two-repo mode
-    },
-    # future:
-    # "hardhat": { "label": "Hardhat", "detect": lambda p: (p/"hardhat.config.js").exists(), ... },
+    "foundry": {
+        "label": "Foundry",
+        "detect": lambda p: (p / "foundry.toml").exists() or (p / "forge.toml").exists(),
+        "image": "touchmeangel/ignite:latest",
+    }
 }
-
 
 # ── Provider / model registry ──────────────────────────────────────────────────
 
@@ -122,7 +111,7 @@ PROVIDERS = {
     },
     "ollama": {
         "label":            "Ollama (local)",
-        "reasoning_models": [],      # populated at runtime
+        "reasoning_models": [],      
         "local_model":      None,
         "env_key":          None,
         "provider_str":     "ollama",
@@ -139,7 +128,6 @@ FALLBACK_OLLAMA_MODELS = [
     "codellama:13b",
 ]
 
-
 # ── Detection helpers ──────────────────────────────────────────────────────────
 
 def docker_running() -> bool:
@@ -151,7 +139,6 @@ def docker_running() -> bool:
     except Exception:
         return False
 
-
 def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
     try:
         with urlopen(f"{base_url}/api/tags", timeout=4) as r:
@@ -159,41 +146,9 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
     except Exception:
         return []
 
-
-# ── Two-repo / agent dir ──────────────────────────────────────────────────────
-
-def get_agent_dir(manager: str) -> Path:
-    """
-    Single-repo: agent lives next to ignite.py.
-    Two-repo: set IGNITE_<MANAGER>_REPO → agent cloned to ~/.ignite/agents/<manager>/
-    """
-    env_var = MANAGERS[manager]["env_var"]
-    if os.environ.get(env_var):
-        return IGNITE_HOME / "agents" / manager
-    return Path(__file__).parent
-
-
-def ensure_agent(manager: str, update: bool = False):
-    env_var = MANAGERS[manager]["env_var"]
-    repo_url = os.environ.get(env_var)
-    if not repo_url:
-        return   # single-repo, nothing to fetch
-
-    agent_dir = get_agent_dir(manager)
-    if not (agent_dir / ".git").exists():
-        console.print(f"  [dim]Cloning agent from {repo_url} …[/dim]")
-        agent_dir.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "clone", repo_url, str(agent_dir)], check=True)
-    elif update:
-        console.print("  [dim]Updating agent …[/dim]")
-        subprocess.run(["git", "pull", "--ff-only"], cwd=agent_dir)
-
-
 # ── Interactive setup ──────────────────────────────────────────────────────────
 
 def _ask_reasoning() -> tuple[str, str, str | None]:
-    """Returns (provider_str, model_name, base_url_or_None)."""
-
     provider_label = questionary.select(
         "Select provider:",
         choices=[p["label"] for p in PROVIDERS.values()],
@@ -233,10 +188,7 @@ def _ask_reasoning() -> tuple[str, str, str | None]:
 
     return prov["provider_str"], model, prov.get("base_url")
 
-
 def _ask_local(reasoning_provider: str, reasoning_model: str) -> tuple[str, str, str | None]:
-    """Returns (provider_str, model_name, base_url_or_None) for the local/flash slot."""
-
     if reasoning_provider == "ollama":
         prov = PROVIDERS["ollama"]
         return "ollama", reasoning_model, prov["base_url"]
@@ -244,7 +196,6 @@ def _ask_local(reasoning_provider: str, reasoning_model: str) -> tuple[str, str,
     console.print()
     console.rule("[dim]STEP 3 — local model  (fast tasks, runs often)[/dim]")
 
-    # Check Ollama
     ollama_models = get_ollama_models()
     if ollama_models:
         console.print(f"  [green]✔[/green]  Ollama detected  ({ollama_models[0]})")
@@ -256,17 +207,14 @@ def _ask_local(reasoning_provider: str, reasoning_model: str) -> tuple[str, str,
             model = questionary.select("Select local model:", choices=choices, style=Q_STYLE).ask()
             if model == "[ enter manually ]" or model is None:
                 model = questionary.text("Model name:").ask() or ollama_models[0]
-            # Inside Docker, host Ollama is at host.docker.internal
             return "ollama", model, "http://host.docker.internal:11434"
     else:
         console.print("  [dim]Ollama not detected on localhost:11434[/dim]")
 
-    # Fall back to provider cheap tier
     prov = PROVIDERS.get(reasoning_provider, {})
     fallback = prov.get("local_model") or reasoning_model
     console.print(f"  [dim]Using {fallback} as local model[/dim]")
     return reasoning_provider, fallback, prov.get("base_url")
-
 
 def _ask_api_key(provider_str: str) -> str:
     prov = next((p for p in PROVIDERS.values() if p["provider_str"] == provider_str), {})
@@ -280,9 +228,7 @@ def _ask_api_key(provider_str: str) -> str:
         console.print(f"  [yellow]⚠[/yellow]  No key entered — set {env_key} in .env later")
     return key
 
-
 def run_setup(manager: str) -> dict:
-    """Interactive setup. Writes config.json + .env. Returns config dict."""
     config_path = IGNITE_HOME / "config.json"
     env_path    = IGNITE_HOME / ".env"
     IGNITE_HOME.mkdir(parents=True, exist_ok=True)
@@ -293,8 +239,6 @@ def run_setup(manager: str) -> dict:
     r_provider, r_model, r_base_url = _ask_reasoning()
     api_key = _ask_api_key(r_provider)
     l_provider, l_model, l_base_url = _ask_local(r_provider, r_model)
-
-    # ── Build config ──────────────────────────────────────────────────────────
 
     local_entry: dict = {
         "provider":    l_provider,
@@ -338,26 +282,7 @@ def run_setup(manager: str) -> dict:
 
     return config
 
-
-# ── Docker ────────────────────────────────────────────────────────────────────
-
-def build_image(manager: str, agent_dir: Path):
-    image = f"{IMAGE_PREFIX}-{manager}"
-    console.print(f"\n  [dim]Building {image} …[/dim]")
-    r = subprocess.run(["docker", "build", "-t", image, "."], cwd=agent_dir)
-    if r.returncode != 0:
-        console.print("  [red]✗[/red]  Docker build failed")
-        sys.exit(1)
-    console.print(f"  [green]✔[/green]  Image built: {image}")
-
-
-def image_exists(manager: str) -> bool:
-    r = subprocess.run(
-        ["docker", "image", "inspect", f"{IMAGE_PREFIX}-{manager}"],
-        capture_output=True,
-    )
-    return r.returncode == 0
-
+# ── Docker Execution ──────────────────────────────────────────────────────────
 
 def load_env_vars() -> dict[str, str]:
     env_path = IGNITE_HOME / ".env"
@@ -370,28 +295,43 @@ def load_env_vars() -> dict[str, str]:
                 k, _, v = line.partition("=")
                 if k not in skip and v:
                     env[k] = v
-    # Also pull from current shell environment
     for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"):
         if key in os.environ and key not in env:
             env[key] = os.environ[key]
     return env
 
+def pull_image(manager: str):
+    image = MANAGERS[manager]["image"]
+    console.print(f"  [dim]Pulling latest image: {image} …[/dim]")
+    r = subprocess.run(["docker", "pull", image])
+    if r.returncode != 0:
+        console.print(f"  [red]✗[/red]  Failed to pull {image}. Check your internet or image name.")
+        sys.exit(1)
+    console.print(f"  [green]✔[/green]  Image updated.")
 
 def run_container(manager: str, project_path: Path, config_path: Path) -> int:
-    image     = f"{IMAGE_PREFIX}-{manager}"
-    env_vars  = load_env_vars()
+    image = MANAGERS[manager]["image"]
+    env_vars = load_env_vars()
+    
     extra_hosts = (
         ["--add-host", "host.docker.internal:host-gateway"]
         if platform.system() == "Linux" else []
     )
+    
     env_flags = []
     for k, v in env_vars.items():
         env_flags += ["-e", f"{k}={v}"]
+
+    # Prevent root-ownership issues on Linux/Mac
+    user_mapping = []
+    if platform.system() != "Windows":
+        user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
 
     cmd = [
         "docker", "run", "--rm",
         "-v", f"{project_path}:/project",
         "-v", f"{config_path}:/app/config.json:ro",
+        *user_mapping,
         "-e", "PROJECT_PATH=/project",
         *env_flags,
         *extra_hosts,
@@ -399,7 +339,6 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
     ]
     console.print(f"\n  [dim]$ {' '.join(cmd)}[/dim]\n")
     return subprocess.run(cmd).returncode
-
 
 # ── Report display ─────────────────────────────────────────────────────────────
 
@@ -420,7 +359,6 @@ def print_report(project_path: Path):
 
     data = json.loads(results_path.read_text())
 
-    # Aggregate across steps
     buckets: dict[str, list] = {"high": [], "medium": [], "low": [], "informational": []}
     for step_data in data.get("steps", {}).values():
         for sev in buckets:
@@ -429,7 +367,6 @@ def print_report(project_path: Path):
     total = sum(len(v) for v in buckets.values())
     h, m  = len(buckets["high"]), len(buckets["medium"])
 
-    # Header panel
     project_name = project_path.name
     date_str     = datetime.now().strftime("%Y-%m-%d")
     header_text  = Text.assemble(
@@ -444,7 +381,6 @@ def print_report(project_path: Path):
         console.print("\n  [bold green]No findings detected.[/bold green]\n")
         return
 
-    # One table per severity that has findings
     for sev, items in buckets.items():
         if not items:
             continue
@@ -469,7 +405,6 @@ def print_report(project_path: Path):
 
         console.print(tbl)
 
-    # Footer
     console.print()
     if report_path.exists():
         console.print(f"  [green]Full report →[/green] {report_path}")
@@ -477,21 +412,20 @@ def print_report(project_path: Path):
         console.print("  [yellow]audit_report.md not generated[/yellow]")
     console.print()
 
-
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 def usage():
     console.print(
         Panel(
             "[bold]ignite[/bold] — Solidity Audit Agent\n\n"
-            "  [green]python ignite.py forge .[/green]\n"
-            "  python ignite.py forge /path/to/project\n"
-            "  python ignite.py forge . [dim]--reconfigure[/dim]\n\n"
+            "  [green]python ignite.py foundry .[/green]\n"
+            "  python ignite.py foundry /path/to/project\n"
+            "  python ignite.py foundry . [dim]--reconfigure[/dim]\n"
+            "  python ignite.py foundry . [dim]--update[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
             title="Usage", box=box.ROUNDED,
         )
     )
-
 
 def main():
     args        = sys.argv[1:]
@@ -517,7 +451,7 @@ def main():
         console.print(f"  [red]✗[/red]  Path not found: {project_path}")
         sys.exit(1)
 
-    # ── Status line ───────────────────────────────────────────────────────────
+    # ── Status & Setup ────────────────────────────────────────────────────────
 
     config_path = IGNITE_HOME / "config.json"
     console.print()
@@ -545,15 +479,10 @@ def main():
 
         run_setup(manager)
 
-    # ── Agent + image ─────────────────────────────────────────────────────────
+    # ── Docker Execution ──────────────────────────────────────────────────────
 
-    ensure_agent(manager, update=do_update)
-    agent_dir = get_agent_dir(manager)
-
-    if not image_exists(manager) or reconfigure:
-        build_image(manager, agent_dir)
-
-    # ── Run ───────────────────────────────────────────────────────────────────
+    if do_update:
+        pull_image(manager)
 
     console.rule()
     console.print(f"\n  [bold]Running audit …[/bold]  [dim]{project_path}[/dim]\n")
@@ -563,7 +492,6 @@ def main():
         console.print(f"  [red]✗[/red]  Container exited with code {rc}")
 
     print_report(project_path)
-
 
 if __name__ == "__main__":
     main()
