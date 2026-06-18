@@ -325,6 +325,7 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
     if platform.system() != "Windows":
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
 
+    # Base Docker command configuration
     cmd = [
         docker_path,
         "run",
@@ -339,6 +340,10 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         *env_flags,
         *extra_hosts,
         image,
+        "--project-path",
+        "/project",
+        "--output",
+        "/project/audit_results.json",
     ]
     console.print(f"\n  [dim]$ {' '.join(cmd)}[/dim]\n")
     return subprocess.run(cmd).returncode  # noqa: S603, S607
