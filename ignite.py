@@ -93,7 +93,7 @@ PROVIDERS = {
         "env_key": "OPENAI_API_KEY",
         "provider_str": "openai_compatible",
         "base_url": "http://localhost:8000/v1",
-    }
+    },
 }
 
 FALLBACK_OLLAMA_MODELS = [
@@ -144,9 +144,12 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
     prov = PROVIDERS[prov_key]
 
     if prov_key == "ollama":
-        base_url = questionary.text(
-            "Ollama endpoint address:", default=prov["base_url"], style=Q_STYLE
-        ).ask() or prov["base_url"]
+        base_url = (
+            questionary.text(
+                "Ollama endpoint address:", default=prov["base_url"], style=Q_STYLE
+            ).ask()
+            or prov["base_url"]
+        )
 
         container_url = base_url
         if "localhost" in base_url or "127.0.0.1" in base_url:
@@ -155,20 +158,31 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
         models = get_ollama_models(base_url)
         choices = (models or FALLBACK_OLLAMA_MODELS) + [CUSTOM_MODEL_LABEL]
 
-        model = questionary.select("Select model tag:", choices=choices, style=Q_STYLE).ask()
+        model = questionary.select(
+            "Select model tag:", choices=choices, style=Q_STYLE
+        ).ask()
         if model == CUSTOM_MODEL_LABEL or model is None:
-            model = questionary.text("Model tag (e.g. llama3.1:8b):", style=Q_STYLE).ask() or FALLBACK_OLLAMA_MODELS[0]
+            model = (
+                questionary.text("Model tag (e.g. llama3.1:8b):", style=Q_STYLE).ask()
+                or FALLBACK_OLLAMA_MODELS[0]
+            )
         return prov["provider_str"], model, container_url
 
     if prov_key == "custom_openai_compatible":
-        base_url = questionary.text(
-            "Target API Base URL endpoint:", default=prov["base_url"], style=Q_STYLE
-        ).ask() or prov["base_url"]
-        
-        model = questionary.text(
-            "Target model tag (e.g. openrouter/auto, deepseek-chat):", style=Q_STYLE
-        ).ask() or "gpt-4o"
-        
+        base_url = (
+            questionary.text(
+                "Target API Base URL endpoint:", default=prov["base_url"], style=Q_STYLE
+            ).ask()
+            or prov["base_url"]
+        )
+
+        model = (
+            questionary.text(
+                "Target model tag (e.g. openrouter/auto, deepseek-chat):", style=Q_STYLE
+            ).ask()
+            or "gpt-4o"
+        )
+
         return prov["provider_str"], model, base_url
 
     model = questionary.select(
