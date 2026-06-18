@@ -1,6 +1,4 @@
 """
-ignite — Solidity Audit Agent
-
 Usage:
     python ignite.py foundry .
     python ignite.py foundry /path/to/project
