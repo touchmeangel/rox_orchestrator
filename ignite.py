@@ -4,7 +4,6 @@ import platform
 import shutil
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -13,7 +12,6 @@ from questionary import Style
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
 IGNITE_HOME = Path.home() / ".ignite"
@@ -232,6 +230,7 @@ def _ask_api_key(provider_str: str) -> str:
         )
     return key
 
+
 def confirm_folder_access(project_path: str) -> None:
     """Displays a prominent security warning regarding folder file modifications."""
     warning_text = (
@@ -241,17 +240,20 @@ def confirm_folder_access(project_path: str) -> None:
         f"inside this directory.\n\n"
         f"[dim]Ensure you have committed any sensitive local changes to git before proceeding.[/dim]"
     )
-    
+
     console.print(Panel(warning_text, border_style="red", padding=(1, 2)))
-    
+
     confirmed = questionary.confirm(
         f"Do you want to grant the agent write permissions to {project_path} directory?",
-        default=False
+        default=False,
     ).ask()
-    
+
     if not confirmed:
-        console.print("\n  [yellow]⚠[/yellow] Execution aborted by user. Safe choice!\n")
+        console.print(
+            "\n  [yellow]⚠[/yellow] Execution aborted by user. Safe choice!\n"
+        )
         sys.exit(0)
+
 
 def run_setup(manager: str) -> dict:
     config_path = IGNITE_HOME / "config.json"
@@ -517,29 +519,34 @@ def main():
 
         rc = run_container(manager, project_path, config_path)
         if rc != 0:
-            console.print(f"\n  [red]✗[/red] [bold red]Container execution failed (exit code {rc}).[/bold red]\n")
+            console.print(
+                f"\n  [red]✗[/red] [bold red]Container execution failed (exit code {rc}).[/bold red]\n"
+            )
             sys.exit(rc)
-                
+
         results_path = project_path / "agent_results.json"
-        
+
         completion_text = Text.assemble(
             ("✨ AUDIT ENGINE PIPELINE COMPLETE\n\n", "bold green"),
-            ("Status:     ", "dim"), ("Active / Success\n", "bold green"),
-            ("Artifacts:  ", "dim"), (f"{results_path.name}\n", "cyan"),
-            ("Location:   ", "dim"), (f"{project_path}", "italic dim")
+            ("Status:     ", "dim"),
+            ("Active / Success\n", "bold green"),
+            ("Artifacts:  ", "dim"),
+            (f"{results_path.name}\n", "cyan"),
+            ("Location:   ", "dim"),
+            (f"{project_path}", "italic dim"),
         )
 
         console.print(
             Panel(
-                completion_text, 
-                box=box.ROUNDED, 
-                border_style="green", 
+                completion_text,
+                box=box.ROUNDED,
+                border_style="green",
                 padding=(1, 2),
-                expand=False
+                expand=False,
             )
         )
         console.print()
-            
+
     except KeyboardInterrupt:
         handle_abort()
 
