@@ -520,7 +520,7 @@ def main():
             console.print(f"\n  [red]✗[/red] [bold red]Container execution failed (exit code {rc}).[/bold red]\n")
             sys.exit(rc)
                 
-        results_path = project_path / "audit_results.json"
+        results_path = project_path / "agent_results.json"
         
         completion_text = Text.assemble(
             ("✨ AUDIT ENGINE PIPELINE COMPLETE\n\n", "bold green"),
