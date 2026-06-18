@@ -1,2 +1,0 @@
-rich==15.0.0
-questionary==2.1.1
