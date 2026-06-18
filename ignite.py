@@ -52,47 +52,43 @@ MANAGERS: dict[str, dict] = {
 PROVIDERS = {
     "anthropic": {
         "label": "Anthropic (Claude)",
-        "reasoning_models": [
+        "models": [
             "claude-sonnet-4-5",
             "claude-opus-4",
             "claude-opus-4-5",
             "claude-haiku-3-5",
         ],
-        "local_model": "claude-haiku-3-5",
         "env_key": "ANTHROPIC_API_KEY",
         "provider_str": "anthropic",
         "base_url": None,
     },
     "openai": {
         "label": "OpenAI (GPT / o-series)",
-        "reasoning_models": [
+        "models": [
             "gpt-4.1",
             "o3",
             "o4-mini",
             "gpt-4.1-mini",
             "gpt-4o",
         ],
-        "local_model": "gpt-4.1-mini",
         "env_key": "OPENAI_API_KEY",
         "provider_str": "openai",
         "base_url": None,
     },
     "google": {
         "label": "Google (Gemini)",
-        "reasoning_models": [
+        "models": [
             "gemini-2.5-pro",
             "gemini-2.5-flash",
             "gemini-2.0-flash",
         ],
-        "local_model": "gemini-2.0-flash",
         "env_key": "GOOGLE_API_KEY",
         "provider_str": "google",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
     },
     "ollama": {
-        "label": "Ollama (local)",
-        "reasoning_models": [],
-        "local_model": None,
+        "label": "Ollama (Local Engine)",
+        "models": [],
         "env_key": None,
         "provider_str": "ollama",
         "base_url": "http://localhost:11434",
@@ -137,9 +133,9 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
 # ── Interactive setup ──────────────────────────────────────────────────────────
 
 
-def _ask_reasoning() -> tuple[str, str, str | None]:
+def _ask_model_profile(role_name: str) -> tuple[str, str, str | None]:
     provider_label = questionary.select(
-        "Select provider:",
+        f"Select provider for [{role_name.upper()}] engine:",
         choices=[p["label"] for p in PROVIDERS.values()],
         style=Q_STYLE,
     ).ask()
@@ -149,71 +145,42 @@ def _ask_reasoning() -> tuple[str, str, str | None]:
     prov_key = next(k for k, v in PROVIDERS.items() if v["label"] == provider_label)
     prov = PROVIDERS[prov_key]
 
-    console.print()
-    console.rule("[dim]STEP 2 — model[/dim]")
-
     if prov_key == "ollama":
         base_url = (
             questionary.text(
-                "Ollama URL:", default=prov["base_url"], style=Q_STYLE
+                "Ollama endpoint address:", default=prov["base_url"], style=Q_STYLE
             ).ask()
             or prov["base_url"]
         )
+
+        # Determine accessible Docker routing override context
+        container_url = base_url
+        if "localhost" in base_url or "127.0.0.1" in base_url:
+            container_url = "http://host.docker.internal:11434"
+
         models = get_ollama_models(base_url)
         choices = (models or FALLBACK_OLLAMA_MODELS) + ["[ enter manually ]"]
-        if models:
-            console.print(f"  [green]✔[/green]  Found {len(models)} local model(s)")
-        else:
-            console.print("  [yellow]⚠[/yellow]  Ollama unreachable — showing defaults")
+
         model = questionary.select(
-            "Select local model:", choices=choices, style=Q_STYLE
+            "Select model tag:", choices=choices, style=Q_STYLE
         ).ask()
         if model == "[ enter manually ]" or model is None:
-            model = questionary.text("Model name:").ask() or FALLBACK_OLLAMA_MODELS[0]
-        return prov["provider_str"], model, base_url
+            model = (
+                questionary.text("Model signature identification:").ask()
+                or FALLBACK_OLLAMA_MODELS[0]
+            )
+        return prov["provider_str"], model, container_url
 
+    # Cloud Providers Selection List Pipeline
     model = questionary.select(
-        "Select model:",
-        choices=prov["reasoning_models"],
+        "Select specific model variant:",
+        choices=prov["models"],
         style=Q_STYLE,
     ).ask()
     if model is None:
         sys.exit(0)
 
     return prov["provider_str"], model, prov.get("base_url")
-
-
-def _ask_local(
-    reasoning_provider: str, reasoning_model: str
-) -> tuple[str, str, str | None]:
-    if reasoning_provider == "ollama":
-        prov = PROVIDERS["ollama"]
-        return "ollama", reasoning_model, prov["base_url"]
-
-    console.print()
-    console.rule("[dim]STEP 3 — local model  (fast tasks, runs often)[/dim]")
-
-    ollama_models = get_ollama_models()
-    if ollama_models:
-        console.print(f"  [green]✔[/green]  Ollama detected  ({ollama_models[0]})")
-        use_local = questionary.confirm(
-            "Use Ollama for fast tasks (free)?", default=True, style=Q_STYLE
-        ).ask()
-        if use_local:
-            choices = ollama_models + ["[ enter manually ]"]
-            model = questionary.select(
-                "Select local model:", choices=choices, style=Q_STYLE
-            ).ask()
-            if model == "[ enter manually ]" or model is None:
-                model = questionary.text("Model name:").ask() or ollama_models[0]
-            return "ollama", model, "http://host.docker.internal:11434"
-    else:
-        console.print("  [dim]Ollama not detected on localhost:11434[/dim]")
-
-    prov = PROVIDERS.get(reasoning_provider, {})
-    fallback = prov.get("local_model") or reasoning_model
-    console.print(f"  [dim]Using {fallback} as local model[/dim]")
-    return reasoning_provider, fallback, prov.get("base_url")
 
 
 def _ask_api_key(provider_str: str) -> str:
@@ -223,12 +190,11 @@ def _ask_api_key(provider_str: str) -> str:
     env_key = prov.get("env_key")
     if not env_key:
         return ""
-    console.print()
-    console.rule("[dim]STEP 4 — API key[/dim]")
+
     key = questionary.password(f"{env_key}:", style=Q_STYLE).ask() or ""
     if not key:
         console.print(
-            f"  [yellow]⚠[/yellow]  No key entered — set {env_key} in .env later"
+            f"  [yellow]⚠[/yellow]  Value omitted — initialize {env_key} inside environment values later"
         )
     return key
 
@@ -238,21 +204,42 @@ def run_setup(manager: str) -> dict:
     env_path = IGNITE_HOME / ".env"
     IGNITE_HOME.mkdir(parents=True, exist_ok=True)
 
+    # ── STEP 1: Flash Configuration ──
     console.print()
-    console.rule("[bold]STEP 1 — reasoning model[/bold]")
+    console.rule(
+        "[bold cyan]STEP 1 — Flash Model (Fast routing tasks, sub-scans)[/bold cyan]"
+    )
+    f_provider, f_model, f_base_url = _ask_model_profile("flash")
 
-    r_provider, r_model, r_base_url = _ask_reasoning()
-    api_key = _ask_api_key(r_provider)
-    l_provider, l_model, l_base_url = _ask_local(r_provider, r_model)
+    # ── STEP 2: Reasoning Configuration ──
+    console.print()
+    console.rule(
+        "[bold magenta]STEP 2 — Reasoning Model (Deep analysis, comprehensive logic reviews)[/bold magenta]"
+    )
+    r_provider, r_model, r_base_url = _ask_model_profile("reasoning")
 
-    local_entry: dict = {
-        "provider": l_provider,
-        "model": l_model,
+    # ── STEP 3: API Pipeline Key Management ──
+    console.print()
+    console.rule(
+        "[bold yellow]STEP 3 — Security Credentials & Token Storage[/bold yellow]"
+    )
+
+    collected_keys = {}
+    active_cloud_providers = {f_provider, r_provider} - {"ollama"}
+
+    for provider_id in active_cloud_providers:
+        secret_token = _ask_api_key(provider_id)
+        if secret_token:
+            collected_keys[provider_id] = secret_token
+
+    flash_entry: dict = {
+        "provider": f_provider,
+        "model": f_model,
         "temperature": 0.1,
         "max_tokens": 4096,
     }
-    if l_base_url:
-        local_entry["base_url"] = l_base_url
+    if f_base_url:
+        flash_entry["base_url"] = f_base_url
 
     reasoning_entry: dict = {
         "provider": r_provider,
@@ -265,11 +252,11 @@ def run_setup(manager: str) -> dict:
 
     config = {
         "models": {
-            "local": local_entry,
+            "flash": flash_entry,
             "reasoning": reasoning_entry,
         },
         "task_routing": {
-            "default": "local",
+            "default": "flash",
             "deep_reasoning": "reasoning",
         },
     }
@@ -278,12 +265,13 @@ def run_setup(manager: str) -> dict:
     console.print(f"\n  [green]✔[/green]  config.json  →  {config_path}")
 
     env_lines = ["# Generated by ignite — do not commit", ""]
-    if api_key:
-        prov = next(
-            (p for p in PROVIDERS.values() if p["provider_str"] == r_provider), {}
+    for provider_id, token_value in collected_keys.items():
+        matched_prov = next(
+            (p for p in PROVIDERS.values() if p["provider_str"] == provider_id), {}
         )
-        if prov.get("env_key"):
-            env_lines.append(f"{prov['env_key']}={api_key}")
+        if matched_prov.get("env_key"):
+            env_lines.append(f"{matched_prov['env_key']}={token_value}")
+
     env_path.write_text("\n".join(env_lines) + "\n")
     console.print(f"  [green]✔[/green]  .env         →  {env_path}")
 
@@ -314,12 +302,7 @@ def pull_image(manager: str):
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS[manager]["image"]
     console.print(f"  [dim]Pulling latest image: {image} …[/dim]")
-    r = subprocess.run([docker_path, "pull", image])  # noqa: S603, S607
-    if r.returncode != 0:
-        console.print(
-            f"  [red]✗[/red]  Failed to pull {image}. Check your internet or image name."
-        )
-        sys.exit(1)
+    subprocess.run([docker_path, "pull", image])  # noqa: S603, S607
     console.print("  [green]✔[/green]  Image updated.")
 
 
@@ -338,7 +321,6 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
     for k, v in env_vars.items():
         env_flags += ["-e", f"{k}={v}"]
 
-    # Prevent root-ownership issues on Linux/Mac
     user_mapping = []
     if platform.system() != "Windows":
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
