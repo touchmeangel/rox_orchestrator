@@ -6,53 +6,43 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from urllib.error import URLError
 from urllib.request import urlopen
+
+import questionary
+from questionary import Style
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 IGNITE_HOME = Path.home() / ".ignite"
 
-# ── Bootstrap rich ────────────────────────────────────────────────────────────
-
-def _ensure(pkg: str, import_as: str | None = None):
-    name = import_as or pkg
-    try:
-        return __import__(name)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
-        return __import__(name)
-
-_ensure("rich")
-_ensure("questionary")
-
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-from rich import box
-import questionary
-from questionary import Style
-
 console = Console()
 
-Q_STYLE = Style([
-    ("qmark",        "fg:#7c6f64 bold"),
-    ("question",     "bold"),
-    ("answer",       "fg:#b8bb26 bold"),
-    ("pointer",      "fg:#fe8019 bold"),
-    ("highlighted",  "fg:#fe8019 bold"),
-    ("selected",     "fg:#b8bb26"),
-    ("separator",    "fg:#665c54"),
-    ("instruction",  "fg:#7c6f64"),
-])
+Q_STYLE = Style(
+    [
+        ("qmark", "fg:#7c6f64 bold"),
+        ("question", "bold"),
+        ("answer", "fg:#b8bb26 bold"),
+        ("pointer", "fg:#fe8019 bold"),
+        ("highlighted", "fg:#fe8019 bold"),
+        ("selected", "fg:#b8bb26"),
+        ("separator", "fg:#665c54"),
+        ("instruction", "fg:#7c6f64"),
+    ]
+)
 
 # ── Manager registry ──────────────────────────────────────────────────────────
 
 MANAGERS: dict[str, dict] = {
     "foundry": {
         "label": "Foundry",
-        "detect": lambda p: (p / "foundry.toml").exists() or (p / "forge.toml").exists(),
+        "detect": lambda p: (
+            (p / "foundry.toml").exists() or (p / "forge.toml").exists()
+        ),
         "image": "touchmeangel/ignite:latest",
     }
 }
@@ -61,20 +51,20 @@ MANAGERS: dict[str, dict] = {
 
 PROVIDERS = {
     "anthropic": {
-        "label":            "Anthropic (Claude)",
+        "label": "Anthropic (Claude)",
         "reasoning_models": [
             "claude-sonnet-4-5",
             "claude-opus-4",
             "claude-opus-4-5",
             "claude-haiku-3-5",
         ],
-        "local_model":      "claude-haiku-3-5",
-        "env_key":          "ANTHROPIC_API_KEY",
-        "provider_str":     "anthropic",
-        "base_url":         None,
+        "local_model": "claude-haiku-3-5",
+        "env_key": "ANTHROPIC_API_KEY",
+        "provider_str": "anthropic",
+        "base_url": None,
     },
     "openai": {
-        "label":            "OpenAI (GPT / o-series)",
+        "label": "OpenAI (GPT / o-series)",
         "reasoning_models": [
             "gpt-4.1",
             "o3",
@@ -82,30 +72,30 @@ PROVIDERS = {
             "gpt-4.1-mini",
             "gpt-4o",
         ],
-        "local_model":      "gpt-4.1-mini",
-        "env_key":          "OPENAI_API_KEY",
-        "provider_str":     "openai",
-        "base_url":         None,
+        "local_model": "gpt-4.1-mini",
+        "env_key": "OPENAI_API_KEY",
+        "provider_str": "openai",
+        "base_url": None,
     },
     "google": {
-        "label":            "Google (Gemini)",
+        "label": "Google (Gemini)",
         "reasoning_models": [
             "gemini-2.5-pro",
             "gemini-2.5-flash",
             "gemini-2.0-flash",
         ],
-        "local_model":      "gemini-2.0-flash",
-        "env_key":          "GOOGLE_API_KEY",
-        "provider_str":     "google",
-        "base_url":         "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "local_model": "gemini-2.0-flash",
+        "env_key": "GOOGLE_API_KEY",
+        "provider_str": "google",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
     },
     "ollama": {
-        "label":            "Ollama (local)",
-        "reasoning_models": [],      
-        "local_model":      None,
-        "env_key":          None,
-        "provider_str":     "ollama",
-        "base_url":         "http://localhost:11434",
+        "label": "Ollama (local)",
+        "reasoning_models": [],
+        "local_model": None,
+        "env_key": None,
+        "provider_str": "ollama",
+        "base_url": "http://localhost:11434",
     },
 }
 
@@ -120,6 +110,7 @@ FALLBACK_OLLAMA_MODELS = [
 
 # ── Detection helpers ──────────────────────────────────────────────────────────
 
+
 def docker_running() -> bool:
     if not shutil.which("docker"):
         return False
@@ -129,6 +120,7 @@ def docker_running() -> bool:
     except Exception:
         return False
 
+
 def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
     try:
         with urlopen(f"{base_url}/api/tags", timeout=4) as r:
@@ -136,7 +128,9 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
     except Exception:
         return []
 
+
 # ── Interactive setup ──────────────────────────────────────────────────────────
+
 
 def _ask_reasoning() -> tuple[str, str, str | None]:
     provider_label = questionary.select(
@@ -154,22 +148,27 @@ def _ask_reasoning() -> tuple[str, str, str | None]:
     console.rule("[dim]STEP 2 — model[/dim]")
 
     if prov_key == "ollama":
-        base_url = questionary.text(
-            "Ollama URL:", default=prov["base_url"], style=Q_STYLE
-        ).ask() or prov["base_url"]
+        base_url = (
+            questionary.text(
+                "Ollama URL:", default=prov["base_url"], style=Q_STYLE
+            ).ask()
+            or prov["base_url"]
+        )
         models = get_ollama_models(base_url)
         choices = (models or FALLBACK_OLLAMA_MODELS) + ["[ enter manually ]"]
         if models:
             console.print(f"  [green]✔[/green]  Found {len(models)} local model(s)")
         else:
             console.print("  [yellow]⚠[/yellow]  Ollama unreachable — showing defaults")
-        model = questionary.select("Select local model:", choices=choices, style=Q_STYLE).ask()
+        model = questionary.select(
+            "Select local model:", choices=choices, style=Q_STYLE
+        ).ask()
         if model == "[ enter manually ]" or model is None:
             model = questionary.text("Model name:").ask() or FALLBACK_OLLAMA_MODELS[0]
         return prov["provider_str"], model, base_url
 
     model = questionary.select(
-        f"Select model:",
+        "Select model:",
         choices=prov["reasoning_models"],
         style=Q_STYLE,
     ).ask()
@@ -178,7 +177,10 @@ def _ask_reasoning() -> tuple[str, str, str | None]:
 
     return prov["provider_str"], model, prov.get("base_url")
 
-def _ask_local(reasoning_provider: str, reasoning_model: str) -> tuple[str, str, str | None]:
+
+def _ask_local(
+    reasoning_provider: str, reasoning_model: str
+) -> tuple[str, str, str | None]:
     if reasoning_provider == "ollama":
         prov = PROVIDERS["ollama"]
         return "ollama", reasoning_model, prov["base_url"]
@@ -194,7 +196,9 @@ def _ask_local(reasoning_provider: str, reasoning_model: str) -> tuple[str, str,
         ).ask()
         if use_local:
             choices = ollama_models + ["[ enter manually ]"]
-            model = questionary.select("Select local model:", choices=choices, style=Q_STYLE).ask()
+            model = questionary.select(
+                "Select local model:", choices=choices, style=Q_STYLE
+            ).ask()
             if model == "[ enter manually ]" or model is None:
                 model = questionary.text("Model name:").ask() or ollama_models[0]
             return "ollama", model, "http://host.docker.internal:11434"
@@ -206,8 +210,11 @@ def _ask_local(reasoning_provider: str, reasoning_model: str) -> tuple[str, str,
     console.print(f"  [dim]Using {fallback} as local model[/dim]")
     return reasoning_provider, fallback, prov.get("base_url")
 
+
 def _ask_api_key(provider_str: str) -> str:
-    prov = next((p for p in PROVIDERS.values() if p["provider_str"] == provider_str), {})
+    prov = next(
+        (p for p in PROVIDERS.values() if p["provider_str"] == provider_str), {}
+    )
     env_key = prov.get("env_key")
     if not env_key:
         return ""
@@ -215,12 +222,15 @@ def _ask_api_key(provider_str: str) -> str:
     console.rule("[dim]STEP 4 — API key[/dim]")
     key = questionary.password(f"{env_key}:", style=Q_STYLE).ask() or ""
     if not key:
-        console.print(f"  [yellow]⚠[/yellow]  No key entered — set {env_key} in .env later")
+        console.print(
+            f"  [yellow]⚠[/yellow]  No key entered — set {env_key} in .env later"
+        )
     return key
+
 
 def run_setup(manager: str) -> dict:
     config_path = IGNITE_HOME / "config.json"
-    env_path    = IGNITE_HOME / ".env"
+    env_path = IGNITE_HOME / ".env"
     IGNITE_HOME.mkdir(parents=True, exist_ok=True)
 
     console.print()
@@ -231,30 +241,30 @@ def run_setup(manager: str) -> dict:
     l_provider, l_model, l_base_url = _ask_local(r_provider, r_model)
 
     local_entry: dict = {
-        "provider":    l_provider,
-        "model":       l_model,
+        "provider": l_provider,
+        "model": l_model,
         "temperature": 0.1,
-        "max_tokens":  4096,
+        "max_tokens": 4096,
     }
     if l_base_url:
         local_entry["base_url"] = l_base_url
 
     reasoning_entry: dict = {
-        "provider":    r_provider,
-        "model":       r_model,
+        "provider": r_provider,
+        "model": r_model,
         "temperature": 0.3,
-        "max_tokens":  8192,
+        "max_tokens": 8192,
     }
     if r_base_url:
         reasoning_entry["base_url"] = r_base_url
 
     config = {
         "models": {
-            "local":     local_entry,
+            "local": local_entry,
             "reasoning": reasoning_entry,
         },
         "task_routing": {
-            "default":       "local",
+            "default": "local",
             "deep_reasoning": "reasoning",
         },
     }
@@ -264,7 +274,9 @@ def run_setup(manager: str) -> dict:
 
     env_lines = ["# Generated by ignite — do not commit", ""]
     if api_key:
-        prov = next((p for p in PROVIDERS.values() if p["provider_str"] == r_provider), {})
+        prov = next(
+            (p for p in PROVIDERS.values() if p["provider_str"] == r_provider), {}
+        )
         if prov.get("env_key"):
             env_lines.append(f"{prov['env_key']}={api_key}")
     env_path.write_text("\n".join(env_lines) + "\n")
@@ -272,7 +284,9 @@ def run_setup(manager: str) -> dict:
 
     return config
 
+
 # ── Docker Execution ──────────────────────────────────────────────────────────
+
 
 def load_env_vars() -> dict[str, str]:
     env_path = IGNITE_HOME / ".env"
@@ -290,24 +304,29 @@ def load_env_vars() -> dict[str, str]:
             env[key] = os.environ[key]
     return env
 
+
 def pull_image(manager: str):
     image = MANAGERS[manager]["image"]
     console.print(f"  [dim]Pulling latest image: {image} …[/dim]")
     r = subprocess.run(["docker", "pull", image])
     if r.returncode != 0:
-        console.print(f"  [red]✗[/red]  Failed to pull {image}. Check your internet or image name.")
+        console.print(
+            f"  [red]✗[/red]  Failed to pull {image}. Check your internet or image name."
+        )
         sys.exit(1)
-    console.print(f"  [green]✔[/green]  Image updated.")
+    console.print("  [green]✔[/green]  Image updated.")
+
 
 def run_container(manager: str, project_path: Path, config_path: Path) -> int:
     image = MANAGERS[manager]["image"]
     env_vars = load_env_vars()
-    
+
     extra_hosts = (
         ["--add-host", "host.docker.internal:host-gateway"]
-        if platform.system() == "Linux" else []
+        if platform.system() == "Linux"
+        else []
     )
-    
+
     env_flags = []
     for k, v in env_vars.items():
         env_flags += ["-e", f"{k}={v}"]
@@ -318,11 +337,16 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
 
     cmd = [
-        "docker", "run", "--rm",
-        "-v", f"{project_path}:/project",
-        "-v", f"{config_path}:/app/config.json:ro",
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{project_path}:/project",
+        "-v",
+        f"{config_path}:/app/config.json:ro",
         *user_mapping,
-        "-e", "PROJECT_PATH=/project",
+        "-e",
+        "PROJECT_PATH=/project",
         *env_flags,
         *extra_hosts,
         image,
@@ -330,18 +354,20 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
     console.print(f"\n  [dim]$ {' '.join(cmd)}[/dim]\n")
     return subprocess.run(cmd).returncode
 
+
 # ── Report display ─────────────────────────────────────────────────────────────
 
 SEVERITY_COLOR = {
-    "high":          "bold red",
-    "medium":        "bold yellow",
-    "low":           "bold cyan",
+    "high": "bold red",
+    "medium": "bold yellow",
+    "low": "bold cyan",
     "informational": "dim",
 }
 
+
 def print_report(project_path: Path):
     results_path = project_path / "audit_results.json"
-    report_path  = project_path / "audit_report.md"
+    report_path = project_path / "audit_report.md"
 
     if not results_path.exists():
         console.print("  [yellow]⚠[/yellow]  audit_results.json not found")
@@ -349,17 +375,22 @@ def print_report(project_path: Path):
 
     data = json.loads(results_path.read_text())
 
-    buckets: dict[str, list] = {"high": [], "medium": [], "low": [], "informational": []}
+    buckets: dict[str, list] = {
+        "high": [],
+        "medium": [],
+        "low": [],
+        "informational": [],
+    }
     for step_data in data.get("steps", {}).values():
         for sev in buckets:
             buckets[sev].extend(step_data.get("findings", {}).get(sev, []))
 
     total = sum(len(v) for v in buckets.values())
-    h, m  = len(buckets["high"]), len(buckets["medium"])
+    h, m = len(buckets["high"]), len(buckets["medium"])
 
     project_name = project_path.name
-    date_str     = datetime.now().strftime("%Y-%m-%d")
-    header_text  = Text.assemble(
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    header_text = Text.assemble(
         ("SECURITY AUDIT REPORT\n", "bold"),
         (f"Project: {project_name}   ", ""),
         (f"Date: {date_str}\n", "dim"),
@@ -376,20 +407,28 @@ def print_report(project_path: Path):
             continue
         color = SEVERITY_COLOR.get(sev, "")
         prefix = sev[0].upper()
-        label  = sev.upper()
+        label = sev.upper()
 
-        console.print(f"\n  [{color}]● {label}[/{color}]  ({len(items)} finding{'s' if len(items)!=1 else ''})\n")
+        console.print(
+            f"\n  [{color}]● {label}[/{color}]  ({len(items)} finding{'s' if len(items) != 1 else ''})\n"
+        )
 
-        tbl = Table(box=box.SIMPLE, show_header=True, header_style="dim",
-                    padding=(0, 1), show_edge=False)
-        tbl.add_column("ID",           style="dim",   width=5,  no_wrap=True)
-        tbl.add_column("Description",  style="",      min_width=36)
-        tbl.add_column("Location",     style="dim",   width=22, no_wrap=True)
+        tbl = Table(
+            box=box.SIMPLE,
+            show_header=True,
+            header_style="dim",
+            padding=(0, 1),
+            show_edge=False,
+        )
+        tbl.add_column("ID", style="dim", width=5, no_wrap=True)
+        tbl.add_column("Description", style="", min_width=36)
+        tbl.add_column("Location", style="dim", width=22, no_wrap=True)
 
         for idx, item in enumerate(items, 1):
-            row_id   = f"{prefix}-{idx:02d}"
-            desc     = (item.get("title") or item.get("check") or
-                        item.get("description", "—"))[:72]
+            row_id = f"{prefix}-{idx:02d}"
+            desc = (
+                item.get("title") or item.get("check") or item.get("description", "—")
+            )[:72]
             location = item.get("location", "—")[:28]
             tbl.add_row(row_id, desc, location)
 
@@ -402,7 +441,9 @@ def print_report(project_path: Path):
         console.print("  [yellow]audit_report.md not generated[/yellow]")
     console.print()
 
+
 # ── Entry point ────────────────────────────────────────────────────────────────
+
 
 def usage():
     console.print(
@@ -413,28 +454,32 @@ def usage():
             "  python ignite.py foundry . [dim]--reconfigure[/dim]\n"
             "  python ignite.py foundry . [dim]--update[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
-            title="Usage", box=box.ROUNDED,
+            title="Usage",
+            box=box.ROUNDED,
         )
     )
 
+
 def main():
-    args        = sys.argv[1:]
-    flags       = {a for a in args if a.startswith("--")}
-    positional  = [a for a in args if not a.startswith("--")]
+    args = sys.argv[1:]
+    flags = {a for a in args if a.startswith("--")}
+    positional = [a for a in args if not a.startswith("--")]
 
     reconfigure = "--reconfigure" in flags
-    do_update   = "--update"      in flags
+    do_update = "--update" in flags
 
     if len(positional) < 2:
         usage()
         sys.exit(1)
 
-    manager      = positional[0].lower()
+    manager = positional[0].lower()
     project_path = Path(positional[1]).resolve()
 
     if manager not in MANAGERS:
-        console.print(f"  [red]✗[/red]  Unknown manager '{manager}'. "
-                      f"Available: {', '.join(MANAGERS)}")
+        console.print(
+            f"  [red]✗[/red]  Unknown manager '{manager}'. "
+            f"Available: {', '.join(MANAGERS)}"
+        )
         sys.exit(1)
 
     if not project_path.exists():
@@ -447,9 +492,11 @@ def main():
     console.print()
 
     if config_path.exists() and not reconfigure:
-        cfg     = json.loads(config_path.read_text())
+        cfg = json.loads(config_path.read_text())
         r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
-        console.print(f"  [green]✔[/green]  Config found  [dim](reasoning: {r_model})[/dim]")
+        console.print(
+            f"  [green]✔[/green]  Config found  [dim](reasoning: {r_model})[/dim]"
+        )
     else:
         if reconfigure:
             console.print("  [dim]Reconfiguring …[/dim]")
@@ -460,10 +507,14 @@ def main():
         if mdef["detect"](project_path):
             console.print(f"  [green]✔[/green]  Detected {mdef['label']} project")
         else:
-            console.print(f"  [yellow]⚠[/yellow]  No {mdef['label']} config found in {project_path}")
+            console.print(
+                f"  [yellow]⚠[/yellow]  No {mdef['label']} config found in {project_path}"
+            )
 
         if not docker_running():
-            console.print("  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry.")
+            console.print(
+                "  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry."
+            )
             sys.exit(1)
         console.print("  [green]✔[/green]  Docker available")
 
@@ -482,6 +533,7 @@ def main():
         console.print(f"  [red]✗[/red]  Container exited with code {rc}")
 
     print_report(project_path)
+
 
 if __name__ == "__main__":
     main()
