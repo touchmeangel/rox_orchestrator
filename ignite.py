@@ -443,10 +443,11 @@ def usage():
     console.print(
         Panel(
             "[bold]ignite[/bold] — EVM security research agent (https://github.com/touchmeangel/ignite_agent)\n\n"
-            "  [cyan]ignite foundry .[/cyan]\n"
-            "  ignite foundry /path/to/project\n"
-            "  ignite foundry . [dim]-r or --reconfigure[/dim]\n"
-            "  ignite foundry . [dim]-u or --update[/dim]\n"
+            "  [cyan]ignite[/cyan]                             [dim](Auto-detect manager in current directory)[/dim]\n"
+            "  [cyan]ignite -u[/cyan]                          [dim](Pull latest image and run in current directory)[/dim]\n"
+            "  ignite foundry .                   [dim](Explicit manager and path)[/dim]\n"
+            "  ignite /path/to/project            [dim](Explicit path, auto-detect manager)[/dim]\n"
+            "  ignite . [dim]-r or --reconfigure[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
             title="Usage",
             box=box.ROUNDED,
@@ -458,17 +459,56 @@ def main():
     try:
         args = sys.argv[1:]
         flags = {a for a in args if a.startswith("-")}
-        positional = [a for a in args if not a.startswith("--")]
+        positional = [a for a in args if not a.startswith("-")]
 
         reconfigure = "--reconfigure" in flags or "-r" in flags
         do_update = "--update" in flags or "-u" in flags
 
-        if len(positional) < 2:
+        manager = None
+        project_path = Path(".").resolve()
+
+        if len(positional) == 2:
+            manager = positional[0].lower()
+            project_path = Path(positional[1]).resolve()
+        elif len(positional) == 1:
+            val = positional[0]
+            if val.lower() in MANAGERS:
+                manager = val.lower()
+            else:
+                project_path = Path(val).resolve()
+        elif len(positional) > 2:
             usage()
             sys.exit(1)
 
-        manager = positional[0].lower()
-        project_path = Path(positional[1]).resolve()
+        if not project_path.exists():
+            console.print(
+                f"  [red]✗[/red]  Path not found: {project_path}", highlight=False
+            )
+            sys.exit(1)
+
+        if manager is None:
+            detected = [
+                m_name
+                for m_name, m_def in MANAGERS.items()
+                if m_def["detect"](project_path)
+            ]
+
+            if len(detected) == 1:
+                manager = detected[0]
+            elif len(detected) > 1:
+                console.print(
+                    f"  [red]✗[/red]  Conflict: Multiple managers detected ({', '.join(detected)})."
+                )
+                console.print(
+                    "      Please specify your target manager explicitly (e.g., ignite foundry .)"
+                )
+                sys.exit(1)
+            else:
+                console.print(
+                    f"  [red]✗[/red]  Could not auto-detect an EVM project setup at [dim]{project_path}[/dim]"
+                )
+                console.print(f"      Available options: {', '.join(MANAGERS)}")
+                sys.exit(1)
 
         if manager not in MANAGERS:
             console.print(
@@ -477,11 +517,7 @@ def main():
             )
             sys.exit(1)
 
-        if not project_path.exists():
-            console.print(
-                f"  [red]✗[/red]  Path not found: {project_path}", highlight=False
-            )
-            sys.exit(1)
+        console.print(f"  [dim]➔ Detected manager:[/dim] [cyan]{manager}[/cyan]")
 
         config_path = IGNITE_HOME / "config.json"
         console.print()
@@ -500,13 +536,7 @@ def main():
                 console.print("  [dim]No config found.[/dim]")
 
             mdef = MANAGERS[manager]
-            if mdef["detect"](project_path):
-                console.print(f"  [cyan]✔[/cyan]  Detected {mdef['label']} project")
-            else:
-                console.print(
-                    f"  [dim]⚠  No {mdef['label']} config found in {project_path}[/dim]",
-                    highlight=False,
-                )
+            console.print(f"  [cyan]✔[/cyan]  Using {mdef['label']} framework pipeline")
 
             if not docker_running():
                 console.print(
@@ -562,7 +592,6 @@ def main():
 
     except KeyboardInterrupt:
         handle_abort()
-
 
 if __name__ == "__main__":
     main()
