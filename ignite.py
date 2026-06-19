@@ -285,6 +285,7 @@ def confirm_folder_access(project_path: str, auto_confirm: bool = False) -> None
     confirmed.add(project_path)
     _save_confirmed_paths(confirmed)
 
+
 def run_setup(manager: str) -> dict:
     config_path = IGNITE_HOME / "config.json"
     env_path = IGNITE_HOME / ".env"
