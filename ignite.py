@@ -447,7 +447,7 @@ def usage():
             "  ignite foundry /path/to/project\n"
             "  ignite foundry . [dim]--reconfigure[/dim]\n"
             "  ignite foundry . [dim]--update[/dim]\n"
-            "  ignite foundry . [dim]--accept-rw-risk[/dim]\n\n"
+            "  ignite foundry . [dim]-y or --accept-rw-risk[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
             title="Usage",
             box=box.ROUNDED,
@@ -458,12 +458,12 @@ def usage():
 def main():
     try:
         args = sys.argv[1:]
-        flags = {a for a in args if a.startswith("--")}
+        flags = {a for a in args if a.startswith("-")}
         positional = [a for a in args if not a.startswith("--")]
 
         reconfigure = "--reconfigure" in flags
         do_update = "--update" in flags
-        accept_rw_risk = "--accept-rw-risk" in flags
+        accept_rw_risk = "--accept-rw-risk" in flags or "-y" in flags
 
         if len(positional) < 2:
             usage()
