@@ -485,7 +485,7 @@ def main():
 
         config_path = IGNITE_HOME / "config.json"
         console.print()
-        
+
         config_exists_and_not_reconfigure = config_path.exists() and not reconfigure
         if config_exists_and_not_reconfigure:
             cfg = json.loads(config_path.read_text())
