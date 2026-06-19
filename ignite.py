@@ -11,7 +11,9 @@ import questionary
 from questionary import Style
 from rich import box
 from rich.console import Console
+from rich.live import Live
 from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.text import Text
 
 IGNITE_HOME = Path.home() / ".ignite"
@@ -249,9 +251,7 @@ def confirm_folder_access(project_path: str) -> None:
     ).ask()
 
     if not confirmed:
-        console.print(
-            "\n  [dim]⚠  Execution aborted by user. Safe choice![/dim]\n"
-        )
+        console.print("\n  [dim]⚠  Execution aborted by user. Safe choice![/dim]\n")
         sys.exit(0)
 
 
@@ -261,11 +261,15 @@ def run_setup(manager: str) -> dict:
     IGNITE_HOME.mkdir(parents=True, exist_ok=True)
 
     console.print()
-    console.rule("[bold]STEP 1 — Flash Model[/bold] [dim](Fast routing tasks, sub-scans)[/dim]")
+    console.rule(
+        "[bold]STEP 1 — Flash Model[/bold] [dim](Fast routing tasks, sub-scans)[/dim]"
+    )
     f_provider, f_model, f_base_url = _ask_model_profile("flash")
 
     console.print()
-    console.rule("[bold]STEP 2 — Reasoning Model[/bold] [dim](Deep analysis, logic reviews)[/dim]")
+    console.rule(
+        "[bold]STEP 2 — Reasoning Model[/bold] [dim](Deep analysis, logic reviews)[/dim]"
+    )
     r_provider, r_model, r_base_url = _ask_model_profile("reasoning")
 
     console.print()
@@ -389,15 +393,23 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         "--output",
         "/project/agent_results.json",
     ]
-    
+
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]\n", highlight=False)
 
-    process = subprocess.Popen(  #noqa: S603
+    process = subprocess.Popen(  # noqa: S603
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0
     )
 
     try:
-        with console.status("[bold cyan]🦆 Initializing container...[/]") as status:
+        custom_spinner = Spinner("dots", text="Initializing container...", style="cyan")
+
+        custom_spinner.frames = ["·", "*", "✷", "✸", "✹", "✺", "✹", "✸", "✷", "*"]
+
+        custom_spinner.interval = 120
+
+        with Live(
+            custom_spinner, console=console, refresh_per_second=20, transient=True
+        ) as live:
             is_first_line = True
             while True:
                 chunk = process.stdout.read(1)
@@ -407,7 +419,7 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
 
                 if chunk:
                     if is_first_line:
-                        status.stop()
+                        live.stop()
                         is_first_line = False
 
                     sys.stdout.buffer.write(chunk)
@@ -434,7 +446,7 @@ def usage():
             "  ignite foundry . [dim]--update[/dim]\n"
             "  ignite foundry . [dim]--accept-rw-risk[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
-            title="🦆 Usage",
+            title="Usage",
             box=box.ROUNDED,
         )
     )
@@ -507,8 +519,10 @@ def main():
             confirm_folder_access(str(project_path))
 
         console.rule(style="dim")
-        
-        console.print(f"\n  Running agent  [dim]{project_path}[/dim]\n", highlight=False)
+
+        console.print(
+            f"\n  Running agent  [dim]{project_path}[/dim]\n", highlight=False
+        )
 
         rc = run_container(manager, project_path, config_path)
         if rc != 0:
@@ -520,7 +534,7 @@ def main():
         results_path = project_path / "agent_results.json"
 
         completion_text = Text.assemble(
-            ("🦆 AUDIT ENGINE PIPELINE COMPLETE\n\n", "bold cyan"),
+            ("AUDIT ENGINE PIPELINE COMPLETE\n\n", "bold cyan"),
             ("Status:     ", "dim"),
             ("Active / Success\n", "bold"),
             ("Artifacts:  ", "dim"),
