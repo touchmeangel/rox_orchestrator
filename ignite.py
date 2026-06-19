@@ -233,8 +233,28 @@ def _ask_api_key(provider_str: str) -> str:
     return key
 
 
-def confirm_folder_access(project_path: str) -> None:
-    """Displays a prominent security warning regarding folder file modifications."""
+CONFIRMED_PATHS_FILE = IGNITE_HOME / "confirmed_paths.json"
+
+
+def _load_confirmed_paths() -> set[str]:
+    if CONFIRMED_PATHS_FILE.exists():
+        try:
+            return set(json.loads(CONFIRMED_PATHS_FILE.read_text()))
+        except Exception:
+            return set()
+    return set()
+
+
+def _save_confirmed_paths(paths: set[str]) -> None:
+    IGNITE_HOME.mkdir(parents=True, exist_ok=True)
+    CONFIRMED_PATHS_FILE.write_text(json.dumps(sorted(paths), indent=2))
+
+
+def confirm_folder_access(project_path: str, auto_confirm: bool = False) -> None:
+    confirmed = _load_confirmed_paths()
+    if project_path in confirmed:
+        return
+
     warning_text = (
         f"[bold red]AGENT FILE SYSTEM ACCESS[/bold red]\n\n"
         f"You are about to run an autonomous agent on: [cyan]{project_path}[/cyan]\n"
@@ -242,19 +262,28 @@ def confirm_folder_access(project_path: str) -> None:
         f"inside this directory.\n\n"
         f"[dim]Ensure you have committed any sensitive local changes to git before proceeding.[/dim]"
     )
-
     console.print(Panel(warning_text, border_style="red", padding=(1, 2)))
 
-    confirmed = questionary.confirm(
+    if auto_confirm:
+        console.print(
+            f"  [yellow]⚠[/yellow]  [bold]-y flag set[/bold] — auto-accepting risk for [cyan]{project_path}[/cyan]\n"
+        )
+        confirmed.add(project_path)
+        _save_confirmed_paths(confirmed)
+        return
+
+    granted = questionary.confirm(
         f"Grant the agent write permissions to {project_path}?",
         default=False,
         style=Q_STYLE,
     ).ask()
 
-    if not confirmed:
+    if not granted:
         console.print("\n  [dim]⚠  Execution aborted by user. Safe choice![/dim]\n")
         sys.exit(0)
 
+    confirmed.add(project_path)
+    _save_confirmed_paths(confirmed)
 
 def run_setup(manager: str) -> dict:
     config_path = IGNITE_HOME / "config.json"
@@ -447,6 +476,7 @@ def usage():
             "  [cyan]ignite -u[/cyan]                          [dim](Pull latest image and run in current directory)[/dim]\n"
             "  ignite foundry .                   [dim](Explicit manager and path)[/dim]\n"
             "  ignite /path/to/project            [dim](Explicit path, auto-detect manager)[/dim]\n"
+            "  ignite /path/to/project -y         [dim](Allow access to new folder without manual input)[/dim]\n"
             "  ignite . [dim]-r or --reconfigure[/dim]\n"
             "  ignite [dim]-h or --help[/dim]                      [dim](Show this help utility view)[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
@@ -468,6 +498,7 @@ def main():
 
         reconfigure = "--reconfigure" in flags or "-r" in flags
         do_update = "--update" in flags or "-u" in flags
+        allow_folder_access = "-y" in flags
 
         manager = None
         project_path = Path(".").resolve()
@@ -527,8 +558,7 @@ def main():
         config_path = IGNITE_HOME / "config.json"
         console.print()
 
-        config_exists_and_not_reconfigure = config_path.exists() and not reconfigure
-        if config_exists_and_not_reconfigure:
+        if config_path.exists() and not reconfigure:
             cfg = json.loads(config_path.read_text())
             r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
             console.print(
@@ -555,8 +585,7 @@ def main():
         if do_update:
             pull_image(manager)
 
-        if not config_exists_and_not_reconfigure:
-            confirm_folder_access(str(project_path))
+        confirm_folder_access(str(project_path), auto_confirm=allow_folder_access)
 
         console.rule(style="dim")
 
