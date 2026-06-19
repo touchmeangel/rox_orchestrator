@@ -447,7 +447,8 @@ def usage():
             "  [cyan]ignite -u[/cyan]                          [dim](Pull latest image and run in current directory)[/dim]\n"
             "  ignite foundry .                   [dim](Explicit manager and path)[/dim]\n"
             "  ignite /path/to/project            [dim](Explicit path, auto-detect manager)[/dim]\n"
-            "  ignite . [dim]-r or --reconfigure[/dim]\n\n"
+            "  ignite . [dim]-r or --reconfigure[/dim]\n"
+            "  ignite [dim]-h or --help[/dim]                      [dim](Show this help utility view)[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
             title="Usage",
             box=box.ROUNDED,
@@ -460,6 +461,10 @@ def main():
         args = sys.argv[1:]
         flags = {a for a in args if a.startswith("-")}
         positional = [a for a in args if not a.startswith("-")]
+
+        if "--help" in flags or "-h" in flags:
+            usage()
+            sys.exit(0)
 
         reconfigure = "--reconfigure" in flags or "-r" in flags
         do_update = "--update" in flags or "-u" in flags

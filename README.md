@@ -1,9 +1,11 @@
 ### Usage
 ```
-ignite foundry .
-ignite foundry /path/to/project
-ignite foundry . --reconfigure
-ignite foundry . --update       # Pulls the latest docker image
+ignite
+ignite -h or --help
+ignite -u                          (Pull latest image and run in current directory)
+ignite foundry .                   (Explicit manager and path)
+ignite /path/to/project            (Explicit path, auto-detect manager)
+ignite . -r or --reconfigure
 ```
 
 ### Install
