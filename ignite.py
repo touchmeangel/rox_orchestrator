@@ -379,6 +379,7 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         docker_path,
         "run",
         "--rm",
+        "-t",
         "-v",
         f"{project_path}:/project",
         "-v",
