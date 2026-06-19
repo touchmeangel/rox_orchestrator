@@ -445,9 +445,8 @@ def usage():
             "[bold]ignite[/bold] — EVM security research agent (https://github.com/touchmeangel/ignite_agent)\n\n"
             "  [cyan]ignite foundry .[/cyan]\n"
             "  ignite foundry /path/to/project\n"
-            "  ignite foundry . [dim]--reconfigure[/dim]\n"
-            "  ignite foundry . [dim]--update[/dim]\n"
-            "  ignite foundry . [dim]-y or --accept-rw-risk[/dim]\n\n"
+            "  ignite foundry . [dim]-r or --reconfigure[/dim]\n"
+            "  ignite foundry . [dim]-u or --update[/dim]\n"
             f"  Available managers: {', '.join(MANAGERS)}",
             title="Usage",
             box=box.ROUNDED,
@@ -461,9 +460,8 @@ def main():
         flags = {a for a in args if a.startswith("-")}
         positional = [a for a in args if not a.startswith("--")]
 
-        reconfigure = "--reconfigure" in flags
-        do_update = "--update" in flags
-        accept_rw_risk = "--accept-rw-risk" in flags or "-y" in flags
+        reconfigure = "--reconfigure" in flags or "-r" in flags
+        do_update = "--update" in flags or "-u" in flags
 
         if len(positional) < 2:
             usage()
@@ -487,8 +485,9 @@ def main():
 
         config_path = IGNITE_HOME / "config.json"
         console.print()
-
-        if config_path.exists() and not reconfigure:
+        
+        config_exists_and_not_reconfigure = config_path.exists() and not reconfigure
+        if config_exists_and_not_reconfigure:
             cfg = json.loads(config_path.read_text())
             r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
             console.print(
@@ -521,7 +520,7 @@ def main():
         if do_update:
             pull_image(manager)
 
-        if not accept_rw_risk:
+        if not config_exists_and_not_reconfigure:
             confirm_folder_access(str(project_path))
 
         console.rule(style="dim")
