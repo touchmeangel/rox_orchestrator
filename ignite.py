@@ -397,26 +397,26 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
     ]
     console.print(f"\n  [dim]$ {' '.join(cmd)}[/dim]\n")
 
-    process = subprocess.Popen(  # noqa: S603
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    process = subprocess.Popen(  #noqa: S603
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0
     )
 
     try:
         with console.status("[#fe8019 bold]Initializing container...[/]") as status:
             is_first_line = True
             while True:
-                char = process.stdout.read(1)
+                chunk = process.stdout.read(1)
 
-                if not char and process.poll() is not None:
+                if not chunk and process.poll() is not None:
                     break
 
-                if char:
+                if chunk:
                     if is_first_line:
                         status.stop()
                         is_first_line = False
 
-                    sys.stdout.write(char)
-                    sys.stdout.flush()
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
 
     except KeyboardInterrupt:
         process.terminate()
