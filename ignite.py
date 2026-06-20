@@ -389,7 +389,7 @@ def pull_image(manager: str):
     console.print("  [cyan]✔[/cyan]  Image updated.")
 
 
-def run_container(manager: str, project_path: Path, config_path: Path) -> int:
+def run_container(manager: str, project_path: Path, config_path: Path, debug_path: Path) -> int:
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS[manager]["image"]
     env_vars = load_env_vars()
@@ -417,6 +417,8 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         f"{project_path}:/project",
         "-v",
         f"{config_path}:/app/config.json:ro",
+        "-v",
+        f"{debug_path}:/tmp/debug.log",
         *user_mapping,
         "-e",
         "PROJECT_PATH=/project",
@@ -427,6 +429,9 @@ def run_container(manager: str, project_path: Path, config_path: Path) -> int:
         "/project",
         "--output",
         "/project/agent_results.json",
+        "--debug",
+        "--debug-log",
+        "/tmp/debug.log"
     ]
 
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]\n", highlight=False)
@@ -594,7 +599,8 @@ def main():
             f"\n  Running agent  [dim]{project_path}[/dim]\n", highlight=False
         )
 
-        rc = run_container(manager, project_path, config_path)
+        debug_path = IGNITE_HOME / "debug.log"
+        rc = run_container(manager, project_path, config_path, debug_path)
         if rc != 0:
             console.print(
                 f"\n  [red]✗[/red] [bold red]Container execution failed (exit code {rc}).[/bold red]\n"
