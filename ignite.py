@@ -389,9 +389,24 @@ def pull_image(manager: str):
     console.print("  [cyan]✔[/cyan]  Image updated.")
 
 
+def _ensure_debug_file(debug_path: Path) -> None:
+    if debug_path.is_dir():
+        try:
+            debug_path.rmdir()
+        except OSError:
+            console.print(
+                f"  [red]✗[/red]  {debug_path} is a non-empty directory — "
+                f"remove it manually and retry:\n      rm -r {debug_path}"
+            )
+            sys.exit(1)
+    debug_path.parent.mkdir(parents=True, exist_ok=True)
+    debug_path.touch(exist_ok=True)
+
+
 def run_container(
     manager: str, project_path: Path, config_path: Path, debug_path: Path
 ) -> int:
+    _ensure_debug_file(debug_path)
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS[manager]["image"]
     env_vars = load_env_vars()
@@ -420,7 +435,7 @@ def run_container(
         "-v",
         f"{config_path}:/app/config.json:ro",
         "-v",
-        f"{debug_path}:/app/debug.log",
+        f"{debug_path}:/app/debug.log:rw",
         *user_mapping,
         "-e",
         "PROJECT_PATH=/project",
@@ -432,7 +447,6 @@ def run_container(
         "--output",
         "/project/agent_results.json",
         "--debug",
-        "--debug-log",
         "/app/debug.log",
     ]
 
