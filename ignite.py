@@ -407,6 +407,7 @@ def run_container(
     manager: str, project_path: Path, config_path: Path, debug_path: Path
 ) -> int:
     _ensure_debug_file(debug_path)
+
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS[manager]["image"]
     env_vars = load_env_vars()
@@ -575,6 +576,8 @@ def main():
             )
             sys.exit(1)
 
+        debug_path = IGNITE_HOME / "debug.log"
+        console.print(f"  [dim]➔ Debug logging on[/dim]: [cyan]{debug_path}[/cyan]")
         console.print(f"  [dim]➔ Detected manager:[/dim] [cyan]{manager}[/cyan]")
 
         config_path = IGNITE_HOME / "config.json"
@@ -615,7 +618,6 @@ def main():
             f"\n  Running agent  [dim]{project_path}[/dim]\n", highlight=False
         )
 
-        debug_path = IGNITE_HOME / "debug.log"
         rc = run_container(manager, project_path, config_path, debug_path)
         if rc != 0:
             console.print(
