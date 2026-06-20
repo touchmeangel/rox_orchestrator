@@ -389,7 +389,9 @@ def pull_image(manager: str):
     console.print("  [cyan]✔[/cyan]  Image updated.")
 
 
-def run_container(manager: str, project_path: Path, config_path: Path, debug_path: Path) -> int:
+def run_container(
+    manager: str, project_path: Path, config_path: Path, debug_path: Path
+) -> int:
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS[manager]["image"]
     env_vars = load_env_vars()
@@ -418,7 +420,7 @@ def run_container(manager: str, project_path: Path, config_path: Path, debug_pat
         "-v",
         f"{config_path}:/app/config.json:ro",
         "-v",
-        f"{debug_path}:/tmp/debug.log",
+        f"{debug_path}:/app/debug.log",
         *user_mapping,
         "-e",
         "PROJECT_PATH=/project",
@@ -431,7 +433,7 @@ def run_container(manager: str, project_path: Path, config_path: Path, debug_pat
         "/project/agent_results.json",
         "--debug",
         "--debug-log",
-        "/tmp/debug.log"
+        "/app/debug.log",
     ]
 
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]\n", highlight=False)
