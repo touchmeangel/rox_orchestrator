@@ -343,7 +343,7 @@ def run_setup(manager: str) -> dict:
         },
         "task_routing": {
             "default": "flash",
-            "deep_reasoning": "reasoning",
+            "reasoning": "reasoning",
         },
     }
 
