@@ -78,7 +78,7 @@ PROVIDERS = {
             "gemini-2.5-flash",
         ],
         "env_key": "GOOGLE_API_KEY",
-        "provider_str": "google",
+        "provider_str": "openai",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
     },
     "ollama": {
@@ -97,13 +97,7 @@ PROVIDERS = {
     },
 }
 
-FALLBACK_OLLAMA_MODELS = [
-    "qwen2.5-coder:14b",
-    "qwen2.5-coder:7b",
-    "deepseek-coder:33b",
-    "deepseek-coder:6.7b",
-    "llama3.1:8b",
-]
+FALLBACK_OLLAMA_MODELS = []
 
 CUSTOM_MODEL_LABEL = "[ enter custom model id ]"
 
@@ -196,7 +190,6 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None, str | None
             handle_abort()
         model = model or "gpt-4o"
 
-        # Generate an isolated environment variable key based on the role to prevent collisions
         dynamic_env_key = f"{role_name.upper()}_CUSTOM_API_KEY"
         return prov["provider_str"], model, base_url, dynamic_env_key
 
@@ -311,14 +304,20 @@ def run_setup(manager: str) -> dict:
     collected_keys = {}
 
     if f_env_key:
-        secret_token = _ask_api_key(f_env_key)
-        if secret_token:
-            collected_keys[f_env_key] = secret_token
+        if f_env_key == "OLLAMA_API_KEY":
+            collected_keys[f_env_key] = "ollama"
+        else:
+            secret_token = _ask_api_key(f_env_key)
+            if secret_token:
+                collected_keys[f_env_key] = secret_token
 
     if r_env_key and r_env_key != f_env_key:
-        secret_token = _ask_api_key(r_env_key)
-        if secret_token:
-            collected_keys[r_env_key] = secret_token
+        if r_env_key == "OLLAMA_API_KEY":
+            collected_keys[r_env_key] = "ollama"
+        else:
+            secret_token = _ask_api_key(r_env_key)
+            if secret_token:
+                collected_keys[r_env_key] = secret_token
 
     flash_entry: dict = {
         "provider": f_provider,
