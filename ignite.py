@@ -86,7 +86,10 @@ PROVIDERS = {
         "models": [],
         "env_key": "OLLAMA_API_KEY",
         "provider_str": "openai",
-        "base_url": "http://localhost:11434",
+        # /v1 suffix is required — Ollama's OpenAI-compatible endpoint is at
+        # /v1/chat/completions, not /chat/completions. Without this the OpenAI
+        # SDK constructs http://host/chat/completions and gets a 404.
+        "base_url": "http://localhost:11434/v1",
     },
     "custom_openai_compatible": {
         "label": "Custom (OpenAI Compatible Gateway)",
@@ -103,11 +106,10 @@ CUSTOM_MODEL_LABEL = "[ enter custom model id ]"
 
 
 def handle_abort():
-    """Helper to print a clean exit message when the user interrupts the execution."""
     console.print(
         "\n\n  [dim]⚠[/dim]  [bold]Execution cancelled by user. Exiting...[/bold]\n"
     )
-    sys.exit(130)  # 130 is the standard exit code for SIGINT (Ctrl+C)
+    sys.exit(130)
 
 
 def docker_running() -> bool:
@@ -123,12 +125,44 @@ def docker_running() -> bool:
         return False
 
 
+def _normalize_base_url(url: str) -> str:
+    url = url.rstrip("/")
+    if not url.endswith("/v1"):
+        url += "/v1"
+    return url
+
+
 def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
-    if not (base_url.startswith("http://") or base_url.startswith("https://")):
+    api_base = base_url.rstrip("/")
+    if api_base.endswith("/v1"):
+        api_base = api_base[:-3]
+    if not (api_base.startswith("http://") or api_base.startswith("https://")):
         return []
     try:
-        with urlopen(f"{base_url}/api/tags", timeout=4) as r:  # noqa: S310
-            return [m["name"] for m in json.loads(r.read()).get("models", [])]
+        with urlopen(f"{api_base}/api/tags", timeout=4) as r:  # noqa: S310
+            models = [m["name"] for m in json.loads(r.read()).get("models", [])]
+
+        tools_capable = []
+        for model in models:
+            try:
+                result = subprocess.run(  # noqa: S603
+                    ["ollama", "show", model, "--modelfile"],  # noqa: S607
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if (
+                    "{{ if .Tools }}" in result.stdout
+                    or "tools" in result.stdout.lower()
+                ):
+                    tools_capable.append(model)
+                else:
+                    tools_capable.append(
+                        model + "  [dim](⚠ tools capability unconfirmed)[/dim]"
+                    )
+            except Exception:
+                tools_capable.append(model)
+        return tools_capable
     except Exception:
         return []
 
@@ -153,9 +187,13 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None, str | None
             handle_abort()
         base_url = base_url or prov["base_url"]
 
+        base_url = _normalize_base_url(base_url)
+
         container_url = base_url
         if "localhost" in base_url or "127.0.0.1" in base_url:
-            container_url = "http://host.docker.internal:11434"
+            container_url = base_url.replace(
+                "localhost", "host.docker.internal"
+            ).replace("127.0.0.1", "host.docker.internal")
 
         models = get_ollama_models(base_url)
         choices = (models or FALLBACK_OLLAMA_MODELS) + [CUSTOM_MODEL_LABEL]
@@ -166,13 +204,15 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None, str | None
         if model is None:
             handle_abort()
 
-        if model == CUSTOM_MODEL_LABEL:
-            model = questionary.text(
-                "Model tag (e.g. llama3.1:8b):", style=Q_STYLE
-            ).ask()
-            if model is None:
-                handle_abort()
-            model = model or FALLBACK_OLLAMA_MODELS[0]
+        if model == CUSTOM_MODEL_LABEL or "[dim]" in model:
+            model = model.split("  ")[0] if "  [dim]" in model else model
+            if model == CUSTOM_MODEL_LABEL:
+                model = questionary.text(
+                    "Model tag (e.g. llama3.1:8b):", style=Q_STYLE
+                ).ask()
+                if model is None:
+                    handle_abort()
+                model = model or FALLBACK_OLLAMA_MODELS[0]
         return prov["provider_str"], model, container_url, prov["env_key"]
 
     if prov_key == "custom_openai_compatible":
@@ -188,7 +228,6 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None, str | None
         ).ask()
         if model is None:
             handle_abort()
-        model = model or "gpt-4o"
 
         dynamic_env_key = f"{role_name.upper()}_CUSTOM_API_KEY"
         return prov["provider_str"], model, base_url, dynamic_env_key
