@@ -156,6 +156,7 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
     except Exception:
         return []
 
+
 def _ask_api_key(env_key: str) -> str:
     if not env_key:
         return ""
@@ -308,7 +309,8 @@ def _ask_model_profile(
             models = get_ollama_models(base_url)
             model = questionary.select(
                 "Select model tag:",
-                choices=(models or FALLBACK_OLLAMA_MODELS) + [CUSTOM_MODEL_LABEL, _BACK],
+                choices=(models or FALLBACK_OLLAMA_MODELS)
+                + [CUSTOM_MODEL_LABEL, _BACK],
                 style=Q_STYLE,
             ).ask()
             if model is None:
@@ -325,7 +327,9 @@ def _ask_model_profile(
                 ).ask()
                 if model is None:
                     handle_abort()
-                model = model or (FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else "")
+                model = model or (
+                    FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else ""
+                )
 
             return prov["provider_str"], model, container_url, prov["env_key"]
 
@@ -343,7 +347,12 @@ def _ask_model_profile(
             if model is None:
                 handle_abort()
 
-            return prov["provider_str"], model, base_url, f"{role_name.upper()}_CUSTOM_API_KEY"
+            return (
+                prov["provider_str"],
+                model,
+                base_url,
+                f"{role_name.upper()}_CUSTOM_API_KEY",
+            )
 
         model = questionary.select(
             "Select a model variant:",
@@ -375,7 +384,7 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
     if config_path.exists():
         try:
             existing = json.loads(config_path.read_text())
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     configure_flash = reconfigure_target in ("both", "flash")
@@ -384,7 +393,10 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
 
     if configure_flash:
         console.print()
-        console.rule(f"[dim]STEP {step} — Flash Model (Fast routing tasks, sub-scans)[/dim]", style="dim")
+        console.rule(
+            f"[dim]STEP {step} — Flash Model (Fast routing tasks, sub-scans)[/dim]",
+            style="dim",
+        )
         step += 1
         result = _ask_model_profile("flash", allow_back=False)
         f_provider, f_model, f_base_url, f_env_key = result  # result is never None here
@@ -395,7 +407,10 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
 
     if configure_reasoning:
         console.print()
-        console.rule(f"[dim]STEP {step} — Reasoning Model (Deep analysis, logic reviews)[/dim]", style="dim")
+        console.rule(
+            f"[dim]STEP {step} — Reasoning Model (Deep analysis, logic reviews)[/dim]",
+            style="dim",
+        )
         step += 1
 
         while True:
@@ -404,18 +419,26 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
                 r_provider, r_model, r_base_url, r_env_key = result
                 break
             console.print()
-            console.rule("[dim]STEP 1 — Flash Model (Fast routing tasks, sub-scans)[/dim]", style="dim")
+            console.rule(
+                "[dim]STEP 1 — Flash Model (Fast routing tasks, sub-scans)[/dim]",
+                style="dim",
+            )
             flash_result = _ask_model_profile("flash", allow_back=False)
             f_provider, f_model, f_base_url, f_env_key = flash_result
             console.print()
-            console.rule("[dim]STEP 2 — Reasoning Model (Deep analysis, logic reviews)[/dim]", style="dim")
+            console.rule(
+                "[dim]STEP 2 — Reasoning Model (Deep analysis, logic reviews)[/dim]",
+                style="dim",
+            )
     else:
         rc = existing.get("models", {}).get("reasoning", {})
         r_provider, r_model = rc.get("provider", "openai"), rc.get("model", "")
         r_base_url, r_env_key = rc.get("base_url"), rc.get("api_key_env")
 
     console.print()
-    console.rule(f"[dim]STEP {step} — Security Credentials & Token Storage[/dim]", style="dim")
+    console.rule(
+        f"[dim]STEP {step} — Security Credentials & Token Storage[/dim]", style="dim"
+    )
 
     stored_keys = _load_env_file()
     collected_keys = dict(stored_keys)
@@ -444,9 +467,15 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
         if token:
             collected_keys[env_key] = token
 
-    def _build_entry(provider, model, base_url, env_key, temperature, max_tokens) -> dict:
-        entry: dict = {"provider": provider, "model": model,
-                       "temperature": temperature, "max_tokens": max_tokens}
+    def _build_entry(
+        provider, model, base_url, env_key, temperature, max_tokens
+    ) -> dict:
+        entry: dict = {
+            "provider": provider,
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
         if base_url:
             entry["base_url"] = base_url
         if env_key:
@@ -466,7 +495,9 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
 
     config = {
         "models": {"flash": flash_entry, "reasoning": reasoning_entry},
-        "task_routing": existing.get("task_routing", {"default": "flash", "reasoning": "reasoning"}),
+        "task_routing": existing.get(
+            "task_routing", {"default": "flash", "reasoning": "reasoning"}
+        ),
     }
     config_path.write_text(json.dumps(config, indent=2))
     console.print(f"\n  [cyan]✔[/cyan]  config.json  →  {config_path}", highlight=False)
@@ -479,6 +510,7 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
     console.print(f"  [cyan]✔[/cyan]  .env         →  {env_path}", highlight=False)
 
     return config
+
 
 def load_env_vars() -> dict[str, str]:
     env_path = IGNITE_HOME / ".env"
@@ -722,9 +754,13 @@ def main():
                     if reconfigure_target is None:
                         console.print("\n  [dim]Reconfiguration cancelled.[/dim]\n")
                         sys.exit(0)
-                    console.print(f"  [dim]Reconfiguring {reconfigure_target} model(s) …[/dim]")
+                    console.print(
+                        f"  [dim]Reconfiguring {reconfigure_target} model(s) …[/dim]"
+                    )
                 else:
-                    console.print("  [dim]No existing config — running full setup.[/dim]")
+                    console.print(
+                        "  [dim]No existing config — running full setup.[/dim]"
+                    )
             else:
                 console.print("  [dim]No config found.[/dim]")
 
