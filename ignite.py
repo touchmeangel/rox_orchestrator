@@ -82,7 +82,7 @@ PROVIDERS = {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
     },
     "ollama": {
-        "label": "Ollama (Local Engine via OpenAI implementation)",
+        "label": "Ollama",
         "models": [],
         "env_key": "OLLAMA_API_KEY",
         "provider_str": "openai",
