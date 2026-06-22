@@ -86,15 +86,12 @@ PROVIDERS = {
         "models": [],
         "env_key": "OLLAMA_API_KEY",
         "provider_str": "openai",
-        # /v1 suffix is required — Ollama's OpenAI-compatible endpoint is at
-        # /v1/chat/completions, not /chat/completions. Without this the OpenAI
-        # SDK constructs http://host/chat/completions and gets a 404.
         "base_url": "http://localhost:11434/v1",
     },
     "custom_openai_compatible": {
         "label": "Custom (OpenAI Compatible Gateway)",
         "models": [],
-        "env_key": None,  # Dynamically generated per role to prevent collisions
+        "env_key": None,
         "provider_str": "openai",
         "base_url": "http://localhost:8000/v1",
     },
@@ -123,13 +120,6 @@ def docker_running() -> bool:
         return True
     except Exception:
         return False
-
-
-def _normalize_base_url(url: str) -> str:
-    url = url.rstrip("/")
-    if not url.endswith("/v1"):
-        url += "/v1"
-    return url
 
 
 def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
@@ -186,8 +176,6 @@ def _ask_model_profile(role_name: str) -> tuple[str, str, str | None, str | None
         if base_url is None:
             handle_abort()
         base_url = base_url or prov["base_url"]
-
-        base_url = _normalize_base_url(base_url)
 
         container_url = base_url
         if "localhost" in base_url or "127.0.0.1" in base_url:
