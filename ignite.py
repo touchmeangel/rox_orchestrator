@@ -43,66 +43,103 @@ MANAGERS: dict[str, dict] = {
     }
 }
 
-PROVIDERS = {
+PROVIDERS: dict[str, dict] = {
     "anthropic": {
         "label": "Anthropic",
         "models": [
-            "claude-opus-4-8",
-            "claude-opus-4-7",
-            "claude-sonnet-4-6",
-            "claude-opus-4-6",
-            "claude-haiku-4.5",
+            {"id": "claude-opus-4-8",   "supports_reasoning_effort": True},
+            {"id": "claude-opus-4-7",   "supports_reasoning_effort": True},
+            {"id": "claude-opus-4-6",   "supports_reasoning_effort": False},
+            {"id": "claude-sonnet-4-6", "supports_reasoning_effort": True},
+            {"id": "claude-haiku-4-5",  "supports_reasoning_effort": False},
         ],
         "env_key": "ANTHROPIC_API_KEY",
         "provider_str": "anthropic",
         "base_url": None,
+        "effort_levels": ["low", "medium", "high", "xhigh", "max"],
+        "default_effort": "high",
     },
     "openai": {
         "label": "OpenAI",
         "models": [
-            "gpt-5.5",
-            "gpt-5",
-            "gpt-4.1-mini",
-            "gpt-4o",
+            {"id": "gpt-5.5",      "supports_reasoning_effort": True},
+            {"id": "gpt-5",        "supports_reasoning_effort": True},
+            {"id": "gpt-4.1-mini", "supports_reasoning_effort": False},
+            {"id": "gpt-4o",       "supports_reasoning_effort": False},
         ],
         "env_key": "OPENAI_API_KEY",
         "provider_str": "openai",
         "base_url": None,
+        "effort_levels": ["none", "low", "medium", "high", "xhigh"],
+        "default_effort": "medium",
     },
     "google": {
         "label": "Google",
         "models": [
-            "gemini-3.5-flash",
-            "gemini-3.1-pro",
-            "gemini-3.1-flash-lite",
-            "gemini-2.5-flash",
+            {"id": "gemini-3.5-flash",      "supports_reasoning_effort": True},
+            {"id": "gemini-3.1-pro",        "supports_reasoning_effort": True},
+            {"id": "gemini-3.1-flash-lite", "supports_reasoning_effort": True},
+            {"id": "gemini-2.5-flash",      "supports_reasoning_effort": True},
         ],
         "env_key": "GOOGLE_API_KEY",
         "provider_str": "openai",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "effort_levels": ["low", "medium", "high"],
+        "default_effort": "medium",
+    },
+    "openrouter": {
+        "label": "OpenRouter",
+        "models": [],
+        "env_key": "OPENROUTER_API_KEY",
+        "provider_str": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "effort_levels": ["none", "minimal", "low", "medium", "high", "xhigh"],
+        "default_effort": "medium",
     },
     "ollama": {
-        "label": "Ollama",
-        "models": [],
-        "env_key": "OLLAMA_API_KEY",
-        "provider_str": "openai",
-        "base_url": "http://localhost:11434/v1",
-    },
-    "custom_openai_compatible": {
-        "label": "Custom (OpenAI Compatible Gateway)",
+        "label": "Ollama (local)",
         "models": [],
         "env_key": None,
         "provider_str": "openai",
-        "base_url": "http://localhost:8000/v1",
+        "base_url": "http://localhost:11434/v1",
+        "effort_levels": [],
+        "default_effort": None,
     },
 }
 
-FALLBACK_OLLAMA_MODELS = []
-
+FALLBACK_OLLAMA_MODELS: list[str] = []
 CUSTOM_MODEL_LABEL = "[ enter custom model id ]"
+_BACK = "← Go back"
 
 
-def handle_abort():
+def _resolve_model_caps(model_id: str, prov: dict) -> dict:
+    known = {m["id"]: m for m in prov.get("models", [])}
+    if model_id in known:
+        return known[model_id]
+
+    console.print(
+        f"  [dim]No capability info for '{model_id}' — please declare:[/dim]"
+    )
+    choice = questionary.select(
+        "This model accepts:",
+        choices=["temperature", "reasoning_effort"],
+        style=Q_STYLE,
+    ).ask()
+    if choice is None:
+        handle_abort()
+    return {
+        "id": model_id,
+        "supports_reasoning_effort": choice == "reasoning_effort",
+    }
+
+
+def build_model_params(caps: dict, effort: str | None) -> dict:
+    if caps.get("supports_reasoning_effort") and effort:
+        return {"reasoning_effort": effort}
+    return {"temperature": 0.7}
+
+
+def handle_abort() -> None:
     console.print(
         "\n\n  [dim]⚠[/dim]  [bold]Execution cancelled by user. Exiting...[/bold]\n"
     )
@@ -160,16 +197,14 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
 def _ask_api_key(env_key: str) -> str:
     if not env_key:
         return ""
-
     key = questionary.password(f"{env_key}:", style=Q_STYLE).ask()
     if key is None:
         handle_abort()
-
     if not key:
         console.print(
             f"  [dim]⚠  Value omitted — initialize {env_key} inside environment values later[/dim]"
         )
-    return key
+    return key  # type: ignore[return-value]
 
 
 CONFIRMED_PATHS_FILE = IGNITE_HOME / "confirmed_paths.json"
@@ -225,9 +260,6 @@ def confirm_folder_access(project_path: str, auto_confirm: bool = False) -> None
     _save_confirmed_paths(confirmed)
 
 
-_BACK = "← Go back"
-
-
 def _load_env_file() -> dict[str, str]:
     env_path = IGNITE_HOME / ".env"
     env: dict[str, str] = {}
@@ -241,147 +273,134 @@ def _load_env_file() -> dict[str, str]:
     return env
 
 
-def _ask_reconfigure_target(config_path: Path) -> str | None:
-    try:
-        cfg = json.loads(config_path.read_text())
-    except Exception:
-        return "both"
-
-    f_model = cfg.get("models", {}).get("flash", {}).get("model", "?")
-    r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
-
-    choice = questionary.select(
-        "What would you like to reconfigure?",
-        choices=[
-            f"Flash model  (current: {f_model})",
-            f"Reasoning model  (current: {r_model})",
-            "Both models",
-            "← Cancel",
-        ],
+def _ask_effort(prov: dict) -> str:
+    console.print(
+        "  [dim]Controls thinking depth. Can be changed later with -r (reconfigure).[/dim]"
+    )
+    effort = questionary.select(
+        "Reasoning effort:",
+        choices=prov["effort_levels"],
+        default=prov["default_effort"],
         style=Q_STYLE,
     ).ask()
-
-    if choice is None or choice == "← Cancel":
-        return None
-    if choice.startswith("Flash"):
-        return "flash"
-    if choice.startswith("Reasoning"):
-        return "reasoning"
-    return "both"
+    if effort is None:
+        handle_abort()
+    return effort  # type: ignore[return-value]
 
 
 def _ask_model_profile(
     existing: dict,
-    role_name: str,
-    allow_back: bool = False,
-) -> tuple[str, str, str | None, str | None] | None:
-    while True:  # inner loop: back-from-model re-shows provider select
-        provider_choices = [p["label"] for p in PROVIDERS.values()]
-        if allow_back:
-            provider_choices.append(_BACK)
-
+) -> tuple[str, str, str | None, str | None, dict, str | None]:
+    while True:
         provider_label = questionary.select(
-            f"Select provider for [{role_name.upper()}] engine:",
-            choices=provider_choices,
+            "Select provider:",
+            choices=[p["label"] for p in PROVIDERS.values()],
             style=Q_STYLE,
         ).ask()
         if provider_label is None:
             handle_abort()
-        if provider_label == _BACK:
-            return None
 
         prov_key = next(k for k, v in PROVIDERS.items() if v["label"] == provider_label)
         prov = PROVIDERS[prov_key]
-        prev_url = (
-            existing.get("models", {})
-            .get(role_name, {})
-            .get("base_url", prov["base_url"])
-        )
 
         if prov_key == "ollama":
+            prev_url = existing.get("base_url", prov["base_url"])
             base_url = questionary.text(
-                "Ollama endpoint address:", default=prev_url, style=Q_STYLE
+                "Ollama endpoint address:",
+                default=prev_url or "http://localhost:11434/v1",
+                style=Q_STYLE,
             ).ask()
             if base_url is None:
                 handle_abort()
             base_url = base_url or prev_url
 
-            container_url = base_url
-            if "localhost" in base_url or "127.0.0.1" in base_url:
-                container_url = base_url.replace(
-                    "localhost", "host.docker.internal"
-                ).replace("127.0.0.1", "host.docker.internal")
+            container_url = (base_url or "").replace(
+                "localhost", "host.docker.internal"
+            ).replace("127.0.0.1", "host.docker.internal")
 
-            models = get_ollama_models(base_url)
+            models = get_ollama_models(base_url or "")
             model = questionary.select(
                 "Select model tag:",
-                choices=(models or FALLBACK_OLLAMA_MODELS)
-                + [CUSTOM_MODEL_LABEL, _BACK],
+                choices=(models or FALLBACK_OLLAMA_MODELS) + [CUSTOM_MODEL_LABEL, _BACK],
                 style=Q_STYLE,
             ).ask()
             if model is None:
                 handle_abort()
             if model == _BACK:
                 continue
-
             if "  [dim]" in model:
                 model = model.split("  ")[0]
-
             if model == CUSTOM_MODEL_LABEL:
-                model = questionary.text(
-                    "Model tag (e.g. llama3.1:8b):", style=Q_STYLE
-                ).ask()
+                model = questionary.text("Model tag:", style=Q_STYLE).ask()
                 if model is None:
                     handle_abort()
-                model = model or (
-                    FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else ""
-                )
+                model = model or (FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else "")
 
-            return prov["provider_str"], model, container_url, prov["env_key"]
+            caps = _resolve_model_caps(model, prov)
+            effort: str | None = None
+            if caps.get("supports_reasoning_effort"):
+                if prov["effort_levels"]:
+                    effort = _ask_effort(prov)
+                else:
+                    console.print(
+                        "  [dim]reasoning_effort declared but no levels defined for Ollama — "
+                        "the value will be passed through as-is[/dim]"
+                    )
+                    effort = questionary.text(
+                        "Effort value:", default="medium", style=Q_STYLE
+                    ).ask()
+                    if effort is None:
+                        handle_abort()
+            else:
+                console.print("  [dim]Using temperature=0.7[/dim]")
 
-        if prov_key == "custom_openai_compatible":
-            base_url = questionary.text(
-                "Target API Base URL endpoint:", default=prev_url, style=Q_STYLE
-            ).ask()
-            if base_url is None:
-                handle_abort()
-            base_url = base_url or prev_url
+            return prov["provider_str"], model, container_url, prov["env_key"], caps, effort
 
+        if prov_key == "openrouter":
+            prev_model = existing.get("model", "")
             model = questionary.text(
-                "Target model id (e.g. openrouter/auto, deepseek-chat):", style=Q_STYLE
+                "Model ID:",
+                default=prev_model,
+                style=Q_STYLE,
             ).ask()
             if model is None:
                 handle_abort()
+            if not model:
+                continue
 
-            return (
-                prov["provider_str"],
-                model,
-                base_url,
-                f"{role_name.upper()}_CUSTOM_API_KEY",
-            )
+            caps = {"id": model, "supports_reasoning_effort": True}
+            effort = _ask_effort(prov)
+            return prov["provider_str"], model, prov["base_url"], prov["env_key"], caps, effort
 
-        model = questionary.select(
+        model_ids = [m["id"] for m in prov["models"]]
+        selected = questionary.select(
             "Select a model variant:",
-            choices=prov["models"] + [CUSTOM_MODEL_LABEL, _BACK],
+            choices=model_ids + [CUSTOM_MODEL_LABEL, _BACK],
             style=Q_STYLE,
         ).ask()
-        if model is None:
+        if selected is None:
             handle_abort()
-        if model == _BACK:
+        if selected == _BACK:
             continue
-
-        if model == CUSTOM_MODEL_LABEL:
-            model = questionary.text("Model signature string:", style=Q_STYLE).ask()
-            if not model:
+        if selected == CUSTOM_MODEL_LABEL:
+            selected = questionary.text("Model signature string:", style=Q_STYLE).ask()
+            if not selected:
                 handle_abort()
 
-        return prov["provider_str"], model, prov.get("base_url"), prov.get("env_key")
+        caps = _resolve_model_caps(selected, prov)
+
+        effort = None
+        if caps.get("supports_reasoning_effort"):
+            effort = _ask_effort(prov)
+        else:
+            console.print(
+                "  [dim]Using temperature=0.7 (this model does not support reasoning effort)[/dim]"
+            )
+
+        return prov["provider_str"], selected, prov.get("base_url"), prov.get("env_key"), caps, effort
 
 
-def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
-    """
-    reconfigure_target: "both" | "flash" | "reasoning"
-    """
+def run_setup() -> dict:
     config_path = IGNITE_HOME / "config.json"
     env_path = IGNITE_HOME / ".env"
     IGNITE_HOME.mkdir(parents=True, exist_ok=True)
@@ -390,122 +409,56 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
     if config_path.exists():
         try:
             existing = json.loads(config_path.read_text())
-        except Exception:  # noqa: S110
+        except Exception:
             pass
 
-    configure_flash = reconfigure_target in ("both", "flash")
-    configure_reasoning = reconfigure_target in ("both", "reasoning")
-    step = 1
-
-    if configure_flash:
-        console.print()
-        console.rule(
-            f"[dim]STEP {step} — Flash Model (Fast routing tasks, sub-scans)[/dim]",
-            style="dim",
-        )
-        step += 1
-        result = _ask_model_profile(existing, "flash", allow_back=False)
-        f_provider, f_model, f_base_url, f_env_key = result  # result is never None here
-    else:
-        fc = existing.get("models", {}).get("flash", {})
-        f_provider, f_model = fc.get("provider", "openai"), fc.get("model", "")
-        f_base_url, f_env_key = fc.get("base_url"), fc.get("api_key_env")
-
-    if configure_reasoning:
-        console.print()
-        console.rule(
-            f"[dim]STEP {step} — Reasoning Model (Deep analysis, logic reviews)[/dim]",
-            style="dim",
-        )
-        step += 1
-
-        while True:
-            result = _ask_model_profile(
-                existing, "reasoning", allow_back=configure_flash
-            )
-            if result is not None:
-                r_provider, r_model, r_base_url, r_env_key = result
-                break
-            console.print()
-            console.rule(
-                "[dim]STEP 1 — Flash Model (Fast routing tasks, sub-scans)[/dim]",
-                style="dim",
-            )
-            flash_result = _ask_model_profile(existing, "flash", allow_back=False)
-            f_provider, f_model, f_base_url, f_env_key = flash_result
-            console.print()
-            console.rule(
-                "[dim]STEP 2 — Reasoning Model (Deep analysis, logic reviews)[/dim]",
-                style="dim",
-            )
-    else:
-        rc = existing.get("models", {}).get("reasoning", {})
-        r_provider, r_model = rc.get("provider", "openai"), rc.get("model", "")
-        r_base_url, r_env_key = rc.get("base_url"), rc.get("api_key_env")
+    existing_model = existing.get("models", {}).get("reasoning", {})
 
     console.print()
-    console.rule(
-        f"[dim]STEP {step} — Security Credentials & Token Storage[/dim]", style="dim"
+    console.rule("[dim]STEP 1 — Model[/dim]", style="dim")
+    provider_str, model, base_url, env_key, caps, effort = _ask_model_profile(
+        existing_model
     )
+
+    console.print()
+    console.rule("[dim]STEP 2 — API Key[/dim]", style="dim")
 
     stored_keys = _load_env_file()
     collected_keys = dict(stored_keys)
 
-    keys_to_handle: dict[str, str | None] = {}
-    if configure_flash and f_env_key:
-        keys_to_handle[f_env_key] = "flash"
-    if configure_reasoning and r_env_key and r_env_key not in keys_to_handle:
-        keys_to_handle[r_env_key] = "reasoning"
-
-    for env_key, _role in keys_to_handle.items():
-        if env_key == "OLLAMA_API_KEY":
-            collected_keys[env_key] = "ollama"
-            continue
-
+    if env_key and env_key != "OLLAMA_API_KEY":
         if stored_keys.get(env_key):
             keep = questionary.confirm(
                 f"Keep existing {env_key}?", default=True, style=Q_STYLE
             ).ask()
             if keep is None:
                 handle_abort()
-            if keep:
-                continue
+            if not keep:
+                token = _ask_api_key(env_key)
+                if token:
+                    collected_keys[env_key] = token
+        else:
+            token = _ask_api_key(env_key)
+            if token:
+                collected_keys[env_key] = token
+    elif env_key == "OLLAMA_API_KEY":
+        collected_keys[env_key] = "ollama"
 
-        token = _ask_api_key(env_key)
-        if token:
-            collected_keys[env_key] = token
-
-    def _build_entry(
-        provider, model, base_url, env_key, temperature, max_tokens
-    ) -> dict:
-        entry: dict = {
-            "provider": provider,
-            "model": model,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        if base_url:
-            entry["base_url"] = base_url
-        if env_key:
-            entry["api_key_env"] = env_key
-        return entry
-
-    flash_entry = (
-        _build_entry(f_provider, f_model, f_base_url, f_env_key, 0.1, 4096)
-        if configure_flash
-        else existing.get("models", {}).get("flash", {})
-    )
-    reasoning_entry = (
-        _build_entry(r_provider, r_model, r_base_url, r_env_key, 0.3, 8192)
-        if configure_reasoning
-        else existing.get("models", {}).get("reasoning", {})
-    )
+    gen_params = build_model_params(caps, effort)
+    entry: dict = {
+        "provider": provider_str,
+        "model": model,
+        "max_tokens": 8192,
+        **gen_params,
+    }
+    if base_url:
+        entry["base_url"] = base_url
+    if env_key:
+        entry["api_key_env"] = env_key
 
     config = {
-        "models": {"flash": flash_entry, "reasoning": reasoning_entry},
-        "task_routing": existing.get(
-            "task_routing", {"default": "flash", "reasoning": "reasoning"}
-        ),
+        "models": {"reasoning": entry},
+        "task_routing": {"reasoning": "reasoning"},
     }
     config_path.write_text(json.dumps(config, indent=2))
     console.print(f"\n  [cyan]✔[/cyan]  config.json  →  {config_path}", highlight=False)
@@ -537,8 +490,7 @@ def load_env_vars() -> dict[str, str]:
         "OPENAI_API_KEY",
         "GOOGLE_API_KEY",
         "OLLAMA_API_KEY",
-        "FLASH_CUSTOM_API_KEY",
-        "REASONING_CUSTOM_API_KEY",
+        "OPENROUTER_API_KEY",
     )
     for key in target_keys:
         if key in os.environ and key not in env:
@@ -546,7 +498,7 @@ def load_env_vars() -> dict[str, str]:
     return env
 
 
-def pull_image(manager: str):
+def pull_image(manager: str) -> None:
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS[manager]["image"]
     console.print(f"  [dim]Pulling latest image: {image} …[/dim]", highlight=False)
@@ -583,11 +535,11 @@ def run_container(
         else []
     )
 
-    env_flags = []
+    env_flags: list[str] = []
     for k, v in env_vars.items():
         env_flags += ["-e", f"{k}={v}"]
 
-    user_mapping = []
+    user_mapping: list[str] = []
     if platform.system() != "Windows":
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
 
@@ -596,24 +548,17 @@ def run_container(
         "run",
         "--rm",
         "-t",
-        "-v",
-        f"{project_path}:/project",
-        "-v",
-        f"{config_path}:/app/config.json:ro",
-        "-v",
-        f"{debug_path}:/app/debug.log:rw",
+        "-v", f"{project_path}:/project",
+        "-v", f"{config_path}:/app/config.json:ro",
+        "-v", f"{debug_path}:/app/debug.log:rw",
         *user_mapping,
-        "-e",
-        "PROJECT_PATH=/project",
+        "-e", "PROJECT_PATH=/project",
         *env_flags,
         *extra_hosts,
         image,
-        "--project-path",
-        "/project",
-        "--output",
-        "/project/agent_results.json",
-        "--debug",
-        "/app/debug.log",
+        "--project-path", "/project",
+        "--output", "/project/agent_results.json",
+        "--debug", "/app/debug.log",
     ]
 
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]\n", highlight=False)
@@ -633,15 +578,12 @@ def run_container(
             is_first_line = True
             while True:
                 chunk = process.stdout.read(1)
-
                 if not chunk and process.poll() is not None:
                     break
-
                 if chunk:
                     if is_first_line:
                         live.stop()
                         is_first_line = False
-
                     sys.stdout.buffer.write(chunk)
                     sys.stdout.buffer.flush()
 
@@ -656,17 +598,17 @@ def run_container(
     return process.returncode
 
 
-def usage():
+def usage() -> None:
     console.print(
         Panel(
             "[bold]ignite[/bold] — EVM security research agent (https://github.com/touchmeangel/ignite_agent)\n\n"
             "  [cyan]ignite[/cyan]                             [dim](Auto-detect manager in current directory)[/dim]\n"
-            "  [cyan]ignite -u[/cyan]                          [dim](Pull latest image and run in current directory)[/dim]\n"
+            "  [cyan]ignite -u[/cyan]                          [dim](Pull latest image and run)[/dim]\n"
             "  ignite foundry .                   [dim](Explicit manager and path)[/dim]\n"
             "  ignite /path/to/project            [dim](Explicit path, auto-detect manager)[/dim]\n"
-            "  ignite /path/to/project -y         [dim](Allow access to new folder without manual input)[/dim]\n"
-            "  ignite . [dim]-r or --reconfigure[/dim]\n"
-            "  ignite [dim]-h or --help[/dim]                      [dim](Show this help utility view)[/dim]\n\n"
+            "  ignite /path/to/project -y         [dim](Skip folder access confirmation)[/dim]\n"
+            "  ignite . [dim]-r or --reconfigure[/dim]         [dim](Change model or API key)[/dim]\n"
+            "  ignite [dim]-h or --help[/dim]\n\n"
             f"  Available managers: {', '.join(MANAGERS)}",
             title="Usage",
             box=box.ROUNDED,
@@ -674,7 +616,7 @@ def usage():
     )
 
 
-def main():
+def main() -> None:
     try:
         args = sys.argv[1:]
         flags = {a for a in args if a.startswith("-")}
@@ -688,7 +630,7 @@ def main():
         do_update = "--update" in flags or "-u" in flags
         allow_folder_access = "-y" in flags
 
-        manager = None
+        manager: str | None = None
         project_path = Path(".").resolve()
 
         if len(positional) == 2:
@@ -716,7 +658,6 @@ def main():
                 for m_name, m_def in MANAGERS.items()
                 if m_def["detect"](project_path)
             ]
-
             if len(detected) == 1:
                 manager = detected[0]
             elif len(detected) > 1:
@@ -751,26 +692,16 @@ def main():
         if config_path.exists() and not reconfigure:
             cfg = json.loads(config_path.read_text())
             r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
+            r_effort = cfg.get("models", {}).get("reasoning", {}).get("reasoning_effort")
+            effort_hint = f", effort: {r_effort}" if r_effort else ""
             console.print(
-                f"  [cyan]✔[/cyan]  Config found  [dim](reasoning: {r_model})[/dim]"
+                f"  [cyan]✔[/cyan]  Config found  [dim](model: {r_model}{effort_hint})[/dim]"
             )
         else:
-            reconfigure_target = "both"
             if reconfigure:
-                if config_path.exists():
-                    reconfigure_target = _ask_reconfigure_target(config_path)
-                    if reconfigure_target is None:
-                        console.print("\n  [dim]Reconfiguration cancelled.[/dim]\n")
-                        sys.exit(0)
-                    console.print(
-                        f"  [dim]Reconfiguring {reconfigure_target} model(s) …[/dim]"
-                    )
-                else:
-                    console.print(
-                        "  [dim]No existing config — running full setup.[/dim]"
-                    )
+                console.print("  [dim]Reconfiguring model …[/dim]")
             else:
-                console.print("  [dim]No config found.[/dim]")
+                console.print("  [dim]No config found — running setup.[/dim]")
 
             mdef = MANAGERS[manager]
             console.print(f"  [cyan]✔[/cyan]  Using {mdef['label']} framework pipeline")
@@ -782,7 +713,7 @@ def main():
                 sys.exit(1)
             console.print("  [cyan]✔[/cyan]  Docker available")
 
-            run_setup(manager, reconfigure_target=reconfigure_target)
+            run_setup()
 
         if do_update:
             pull_image(manager)
@@ -790,7 +721,6 @@ def main():
         confirm_folder_access(str(project_path), auto_confirm=allow_folder_access)
 
         console.rule(style="dim")
-
         console.print(
             f"\n  Running agent  [dim]{project_path}[/dim]\n", highlight=False
         )
@@ -803,7 +733,6 @@ def main():
             sys.exit(rc)
 
         results_path = project_path / "agent_results.json"
-
         completion_text = Text.assemble(
             ("AUDIT ENGINE PIPELINE COMPLETE\n\n", "bold cyan"),
             ("Status:     ", "dim"),
@@ -813,7 +742,6 @@ def main():
             ("Location:   ", "dim"),
             (f"{project_path}", "italic dim"),
         )
-
         console.print(
             Panel(
                 completion_text,
