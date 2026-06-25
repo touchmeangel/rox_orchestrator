@@ -49,7 +49,7 @@ PROVIDERS: dict[str, dict] = {
         "models": [
             {"id": "claude-opus-4-8",   "supports_reasoning_effort": True},
             {"id": "claude-opus-4-7",   "supports_reasoning_effort": True},
-            {"id": "claude-opus-4-6",   "supports_reasoning_effort": False},
+            {"id": "claude-opus-4-6",   "supports_reasoning_effort": True},
             {"id": "claude-sonnet-4-6", "supports_reasoning_effort": True},
             {"id": "claude-haiku-4-5",  "supports_reasoning_effort": False},
         ],
