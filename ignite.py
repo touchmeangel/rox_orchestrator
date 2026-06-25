@@ -47,11 +47,11 @@ PROVIDERS: dict[str, dict] = {
     "anthropic": {
         "label": "Anthropic",
         "models": [
-            {"id": "claude-opus-4-8",   "supports_reasoning_effort": True},
-            {"id": "claude-opus-4-7",   "supports_reasoning_effort": True},
-            {"id": "claude-opus-4-6",   "supports_reasoning_effort": True},
+            {"id": "claude-opus-4-8", "supports_reasoning_effort": True},
+            {"id": "claude-opus-4-7", "supports_reasoning_effort": True},
+            {"id": "claude-opus-4-6", "supports_reasoning_effort": True},
             {"id": "claude-sonnet-4-6", "supports_reasoning_effort": True},
-            {"id": "claude-haiku-4-5",  "supports_reasoning_effort": False},
+            {"id": "claude-haiku-4-5", "supports_reasoning_effort": False},
         ],
         "env_key": "ANTHROPIC_API_KEY",
         "provider_str": "anthropic",
@@ -62,10 +62,10 @@ PROVIDERS: dict[str, dict] = {
     "openai": {
         "label": "OpenAI",
         "models": [
-            {"id": "gpt-5.5",      "supports_reasoning_effort": True},
-            {"id": "gpt-5",        "supports_reasoning_effort": True},
+            {"id": "gpt-5.5", "supports_reasoning_effort": True},
+            {"id": "gpt-5", "supports_reasoning_effort": True},
             {"id": "gpt-4.1-mini", "supports_reasoning_effort": False},
-            {"id": "gpt-4o",       "supports_reasoning_effort": False},
+            {"id": "gpt-4o", "supports_reasoning_effort": False},
         ],
         "env_key": "OPENAI_API_KEY",
         "provider_str": "openai",
@@ -76,10 +76,10 @@ PROVIDERS: dict[str, dict] = {
     "google": {
         "label": "Google",
         "models": [
-            {"id": "gemini-3.5-flash",      "supports_reasoning_effort": True},
-            {"id": "gemini-3.1-pro",        "supports_reasoning_effort": True},
+            {"id": "gemini-3.5-flash", "supports_reasoning_effort": True},
+            {"id": "gemini-3.1-pro", "supports_reasoning_effort": True},
             {"id": "gemini-3.1-flash-lite", "supports_reasoning_effort": True},
-            {"id": "gemini-2.5-flash",      "supports_reasoning_effort": True},
+            {"id": "gemini-2.5-flash", "supports_reasoning_effort": True},
         ],
         "env_key": "GOOGLE_API_KEY",
         "provider_str": "openai",
@@ -117,9 +117,7 @@ def _resolve_model_caps(model_id: str, prov: dict) -> dict:
     if model_id in known:
         return known[model_id]
 
-    console.print(
-        f"  [dim]No capability info for '{model_id}' — please declare:[/dim]"
-    )
+    console.print(f"  [dim]No capability info for '{model_id}' — please declare:[/dim]")
     choice = questionary.select(
         "This model accepts:",
         choices=["temperature", "reasoning_effort"],
@@ -314,14 +312,17 @@ def _ask_model_profile(
                 handle_abort()
             base_url = base_url or prev_url
 
-            container_url = (base_url or "").replace(
-                "localhost", "host.docker.internal"
-            ).replace("127.0.0.1", "host.docker.internal")
+            container_url = (
+                (base_url or "")
+                .replace("localhost", "host.docker.internal")
+                .replace("127.0.0.1", "host.docker.internal")
+            )
 
             models = get_ollama_models(base_url or "")
             model = questionary.select(
                 "Select model tag:",
-                choices=(models or FALLBACK_OLLAMA_MODELS) + [CUSTOM_MODEL_LABEL, _BACK],
+                choices=(models or FALLBACK_OLLAMA_MODELS)
+                + [CUSTOM_MODEL_LABEL, _BACK],
                 style=Q_STYLE,
             ).ask()
             if model is None:
@@ -334,7 +335,9 @@ def _ask_model_profile(
                 model = questionary.text("Model tag:", style=Q_STYLE).ask()
                 if model is None:
                     handle_abort()
-                model = model or (FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else "")
+                model = model or (
+                    FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else ""
+                )
 
             caps = _resolve_model_caps(model, prov)
             effort: str | None = None
@@ -354,7 +357,14 @@ def _ask_model_profile(
             else:
                 console.print("  [dim]Using temperature=0.7[/dim]")
 
-            return prov["provider_str"], model, container_url, prov["env_key"], caps, effort
+            return (
+                prov["provider_str"],
+                model,
+                container_url,
+                prov["env_key"],
+                caps,
+                effort,
+            )
 
         if prov_key == "openrouter":
             prev_model = existing.get("model", "")
@@ -370,7 +380,14 @@ def _ask_model_profile(
 
             caps = {"id": model, "supports_reasoning_effort": True}
             effort = _ask_effort(prov)
-            return prov["provider_str"], model, prov["base_url"], prov["env_key"], caps, effort
+            return (
+                prov["provider_str"],
+                model,
+                prov["base_url"],
+                prov["env_key"],
+                caps,
+                effort,
+            )
 
         model_ids = [m["id"] for m in prov["models"]]
         selected = questionary.select(
@@ -397,7 +414,14 @@ def _ask_model_profile(
                 "  [dim]Using temperature=0.7 (this model does not support reasoning effort)[/dim]"
             )
 
-        return prov["provider_str"], selected, prov.get("base_url"), prov.get("env_key"), caps, effort
+        return (
+            prov["provider_str"],
+            selected,
+            prov.get("base_url"),
+            prov.get("env_key"),
+            caps,
+            effort,
+        )
 
 
 def run_setup() -> dict:
@@ -548,17 +572,24 @@ def run_container(
         "run",
         "--rm",
         "-t",
-        "-v", f"{project_path}:/project",
-        "-v", f"{config_path}:/app/config.json:ro",
-        "-v", f"{debug_path}:/app/debug.log:rw",
+        "-v",
+        f"{project_path}:/project",
+        "-v",
+        f"{config_path}:/app/config.json:ro",
+        "-v",
+        f"{debug_path}:/app/debug.log:rw",
         *user_mapping,
-        "-e", "PROJECT_PATH=/project",
+        "-e",
+        "PROJECT_PATH=/project",
         *env_flags,
         *extra_hosts,
         image,
-        "--project-path", "/project",
-        "--output", "/project/agent_results.json",
-        "--debug", "/app/debug.log",
+        "--project-path",
+        "/project",
+        "--output",
+        "/project/agent_results.json",
+        "--debug",
+        "/app/debug.log",
     ]
 
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]\n", highlight=False)
@@ -692,7 +723,9 @@ def main() -> None:
         if config_path.exists() and not reconfigure:
             cfg = json.loads(config_path.read_text())
             r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
-            r_effort = cfg.get("models", {}).get("reasoning", {}).get("reasoning_effort")
+            r_effort = (
+                cfg.get("models", {}).get("reasoning", {}).get("reasoning_effort")
+            )
             effort_hint = f", effort: {r_effort}" if r_effort else ""
             console.print(
                 f"  [cyan]✔[/cyan]  Config found  [dim](model: {r_model}{effort_hint})[/dim]"
