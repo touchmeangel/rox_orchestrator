@@ -271,6 +271,7 @@ def _ask_reconfigure_target(config_path: Path) -> str | None:
 
 
 def _ask_model_profile(
+    existing: dict,
     role_name: str,
     allow_back: bool = False,
 ) -> tuple[str, str, str | None, str | None] | None:
@@ -291,14 +292,15 @@ def _ask_model_profile(
 
         prov_key = next(k for k, v in PROVIDERS.items() if v["label"] == provider_label)
         prov = PROVIDERS[prov_key]
+        prev_url = existing.get("models", {}).get(role_name, {}).get("base_url", prov["base_url"])
 
         if prov_key == "ollama":
             base_url = questionary.text(
-                "Ollama endpoint address:", default=prov["base_url"], style=Q_STYLE
+                "Ollama endpoint address:", default=prev_url, style=Q_STYLE
             ).ask()
             if base_url is None:
                 handle_abort()
-            base_url = base_url or prov["base_url"]
+            base_url = base_url or prev_url
 
             container_url = base_url
             if "localhost" in base_url or "127.0.0.1" in base_url:
@@ -335,11 +337,11 @@ def _ask_model_profile(
 
         if prov_key == "custom_openai_compatible":
             base_url = questionary.text(
-                "Target API Base URL endpoint:", default=prov["base_url"], style=Q_STYLE
+                "Target API Base URL endpoint:", default=prev_url, style=Q_STYLE
             ).ask()
             if base_url is None:
                 handle_abort()
-            base_url = base_url or prov["base_url"]
+            base_url = base_url or prev_url
 
             model = questionary.text(
                 "Target model id (e.g. openrouter/auto, deepseek-chat):", style=Q_STYLE
@@ -398,7 +400,7 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
             style="dim",
         )
         step += 1
-        result = _ask_model_profile("flash", allow_back=False)
+        result = _ask_model_profile(existing, "flash", allow_back=False)
         f_provider, f_model, f_base_url, f_env_key = result  # result is never None here
     else:
         fc = existing.get("models", {}).get("flash", {})
@@ -414,7 +416,7 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
         step += 1
 
         while True:
-            result = _ask_model_profile("reasoning", allow_back=configure_flash)
+            result = _ask_model_profile(existing, "reasoning", allow_back=configure_flash)
             if result is not None:
                 r_provider, r_model, r_base_url, r_env_key = result
                 break
@@ -423,7 +425,7 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
                 "[dim]STEP 1 — Flash Model (Fast routing tasks, sub-scans)[/dim]",
                 style="dim",
             )
-            flash_result = _ask_model_profile("flash", allow_back=False)
+            flash_result = _ask_model_profile(existing, "flash", allow_back=False)
             f_provider, f_model, f_base_url, f_env_key = flash_result
             console.print()
             console.rule(
