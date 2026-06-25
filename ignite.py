@@ -292,7 +292,11 @@ def _ask_model_profile(
 
         prov_key = next(k for k, v in PROVIDERS.items() if v["label"] == provider_label)
         prov = PROVIDERS[prov_key]
-        prev_url = existing.get("models", {}).get(role_name, {}).get("base_url", prov["base_url"])
+        prev_url = (
+            existing.get("models", {})
+            .get(role_name, {})
+            .get("base_url", prov["base_url"])
+        )
 
         if prov_key == "ollama":
             base_url = questionary.text(
@@ -416,7 +420,9 @@ def run_setup(manager: str, reconfigure_target: str = "both") -> dict:
         step += 1
 
         while True:
-            result = _ask_model_profile(existing, "reasoning", allow_back=configure_flash)
+            result = _ask_model_profile(
+                existing, "reasoning", allow_back=configure_flash
+            )
             if result is not None:
                 r_provider, r_model, r_base_url, r_env_key = result
                 break
