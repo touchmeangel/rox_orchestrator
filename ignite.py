@@ -579,7 +579,6 @@ def run_container(
         "-v",
         f"{debug_path}:/app/debug.log:rw",
         *user_mapping,
-        "-e",
         *env_flags,
         *extra_hosts,
         image,
