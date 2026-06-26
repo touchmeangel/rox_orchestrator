@@ -580,7 +580,6 @@ def run_container(
         f"{debug_path}:/app/debug.log:rw",
         *user_mapping,
         "-e",
-        "PROJECT_PATH=/project",
         *env_flags,
         *extra_hosts,
         image,
