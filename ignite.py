@@ -134,7 +134,7 @@ def _resolve_model_caps(model_id: str, prov: dict) -> dict:
 def build_model_params(caps: dict, effort: str | None) -> dict:
     if caps.get("supports_reasoning_effort") and effort:
         return {"reasoning_effort": effort}
-    return {"temperature": 0.7}
+    return {"temperature": 0.3}
 
 
 def handle_abort() -> None:
