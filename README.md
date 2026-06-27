@@ -3,8 +3,7 @@
 ignite
 ignite -h or --help
 ignite -u                          (Pull latest image and run in current directory)
-ignite foundry .                   (Explicit manager and path)
-ignite /path/to/project            (Explicit path, auto-detect manager)
+ignite /path/to/project            (Explicit path)
 ignite . -r or --reconfigure
 ```
 
