@@ -652,7 +652,7 @@ def main() -> None:
             try:
                 idx = args.index("--github-url")
                 github_url = args[idx + 1]
-                del args[idx:idx + 2]
+                del args[idx : idx + 2]
             except IndexError:
                 console.print("  [red]✗[/red]  Missing value for --github-url flag.")
                 sys.exit(1)
@@ -660,7 +660,7 @@ def main() -> None:
             try:
                 idx = args.index("-g")
                 github_url = args[idx + 1]
-                del args[idx:idx + 2]
+                del args[idx : idx + 2]
             except IndexError:
                 console.print("  [red]✗[/red]  Missing value for -g flag.")
                 sys.exit(1)
@@ -694,7 +694,7 @@ def main() -> None:
 
         debug_path = IGNITE_HOME / "debug.log"
         console.print(f"  [dim]➔ Debug logging on[/dim]: [cyan]{debug_path}[/cyan]")
-        console.print(f"  [dim]➔ Pipeline:[/dim] [cyan]Foundry[/cyan]")
+        console.print("  [dim]➔ Pipeline:[/dim] [cyan]Foundry[/cyan]")
 
         config_path = IGNITE_HOME / "config.json"
         console.print()
@@ -715,7 +715,9 @@ def main() -> None:
             else:
                 console.print("  [dim]No config found — running setup.[/dim]")
 
-            console.print(f"  [cyan]✔[/cyan]  Using {MANAGERS[manager]['label']} pipeline")
+            console.print(
+                f"  [cyan]✔[/cyan]  Using {MANAGERS[manager]['label']} pipeline"
+            )
 
             if not docker_running():
                 console.print(
@@ -733,8 +735,7 @@ def main() -> None:
 
         if not github_url:
             github_url = questionary.text(
-                "Enter GitHub repository URL:",
-                style=Q_STYLE
+                "Enter GitHub repository URL:", style=Q_STYLE
             ).ask()
             if github_url is None:
                 handle_abort()
