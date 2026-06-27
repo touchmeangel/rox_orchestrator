@@ -287,7 +287,6 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
         return []
 
 
-
 def _resolve_model_caps(model_id: str, prov: dict) -> dict:
     known = {m["id"]: m for m in prov.get("models", [])}
     if model_id in known:
@@ -376,7 +375,8 @@ def _ask_model_profile(
             models = get_ollama_models(base_url or "")
             model = questionary.select(
                 "Select model tag:",
-                choices=(models or FALLBACK_OLLAMA_MODELS) + [CUSTOM_MODEL_LABEL, _BACK],
+                choices=(models or FALLBACK_OLLAMA_MODELS)
+                + [CUSTOM_MODEL_LABEL, _BACK],
                 style=Q_STYLE,
             ).ask()
             if model is None:
@@ -389,7 +389,9 @@ def _ask_model_profile(
                 model = questionary.text("Model tag:", style=Q_STYLE).ask()
                 if model is None:
                     handle_abort()
-                model = model or (FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else "")
+                model = model or (
+                    FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else ""
+                )
 
             caps = _resolve_model_caps(model, prov)
             effort: str | None = None
@@ -409,12 +411,21 @@ def _ask_model_profile(
             else:
                 console.print("  [dim]Using temperature=0.7[/dim]")
 
-            return (prov["provider_str"], model, container_url, prov["env_key"], caps, effort)
+            return (
+                prov["provider_str"],
+                model,
+                container_url,
+                prov["env_key"],
+                caps,
+                effort,
+            )
 
         if prov_key == "openrouter":
             prev_model = existing.get("model", "")
             model = questionary.text(
-                "Model ID:", default=prev_model, style=Q_STYLE,
+                "Model ID:",
+                default=prev_model,
+                style=Q_STYLE,
             ).ask()
             if model is None:
                 handle_abort()
@@ -423,7 +434,14 @@ def _ask_model_profile(
 
             caps = {"id": model, "supports_reasoning_effort": True}
             effort = _ask_effort(prov)
-            return (prov["provider_str"], model, prov["base_url"], prov["env_key"], caps, effort)
+            return (
+                prov["provider_str"],
+                model,
+                prov["base_url"],
+                prov["env_key"],
+                caps,
+                effort,
+            )
 
         model_ids = [m["id"] for m in prov["models"]]
         selected = questionary.select(
@@ -449,7 +467,14 @@ def _ask_model_profile(
                 "  [dim]Using temperature=0.7 (this model does not support reasoning effort)[/dim]"
             )
 
-        return (prov["provider_str"], selected, prov.get("base_url"), prov.get("env_key"), caps, effort)
+        return (
+            prov["provider_str"],
+            selected,
+            prov.get("base_url"),
+            prov.get("env_key"),
+            caps,
+            effort,
+        )
 
 
 def _load_env_file() -> dict[str, str]:
@@ -481,7 +506,9 @@ def run_setup() -> dict:
 
     console.print()
     console.rule("[dim]STEP 1 — Model[/dim]", style="dim")
-    provider_str, model, base_url, env_key, caps, effort = _ask_model_profile(existing_model)
+    provider_str, model, base_url, env_key, caps, effort = _ask_model_profile(
+        existing_model
+    )
 
     console.print()
     console.rule("[dim]STEP 2 — API Key[/dim]", style="dim")
@@ -561,7 +588,6 @@ def load_env_vars() -> dict[str, str]:
     return env
 
 
-
 def pull_image() -> None:
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS["foundry"]["image"]
@@ -612,10 +638,14 @@ def run_container(
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
 
     container_args = [
-        "--repo-path", "/repo",
-        "--work-path", "/work",
-        "--output",    "/work/agent_results.json",
-        "--debug",     "/app/debug.log",
+        "--repo-path",
+        "/repo",
+        "--work-path",
+        "/work",
+        "--output",
+        "/work/agent_results.json",
+        "--debug",
+        "/app/debug.log",
     ]
     if skip_build:
         container_args.append("--skip-build")
@@ -625,10 +655,14 @@ def run_container(
         "run",
         "--rm",
         "-t",
-        "-v", f"{repo_path}:/repo:ro",
-        "-v", f"{work_path}:/work:rw",
-        "-v", f"{config_path}:/app/config.json:ro",
-        "-v", f"{debug_path}:/app/debug.log:rw",
+        "-v",
+        f"{repo_path}:/repo:ro",
+        "-v",
+        f"{work_path}:/work:rw",
+        "-v",
+        f"{config_path}:/app/config.json:ro",
+        "-v",
+        f"{debug_path}:/app/debug.log:rw",
         *user_mapping,
         *env_flags,
         *extra_hosts,
@@ -701,7 +735,7 @@ def main() -> None:
                 try:
                     idx = args.index(flag)
                     github_url = args[idx + 1]
-                    del args[idx:idx + 2]
+                    del args[idx : idx + 2]
                     break
                 except IndexError:
                     console.print(f"  [red]✗[/red]  Missing value for {flag}.")
@@ -714,41 +748,53 @@ def main() -> None:
             usage()
             sys.exit(0)
 
-        reconfigure   = "--reconfigure" in flags or "-r" in flags
-        do_update     = "--update"      in flags or "-u" in flags
-        force_reclone = "--fresh"       in flags
-        skip_build    = "--skip-build"  in flags
+        reconfigure = "--reconfigure" in flags or "-r" in flags
+        do_update = "--update" in flags or "-u" in flags
+        force_reclone = "--fresh" in flags
+        skip_build = "--skip-build" in flags
 
         if len(positional) > 1:
             usage()
             sys.exit(1)
 
-        inspect_path = Path(positional[0]).resolve() if positional else Path(".").resolve()
+        inspect_path = (
+            Path(positional[0]).resolve() if positional else Path(".").resolve()
+        )
 
         if not inspect_path.exists():
-            console.print(f"  [red]✗[/red]  Path not found: {inspect_path}", highlight=False)
+            console.print(
+                f"  [red]✗[/red]  Path not found: {inspect_path}", highlight=False
+            )
             sys.exit(1)
 
-        debug_path  = IGNITE_HOME / "debug.log"
+        debug_path = IGNITE_HOME / "debug.log"
         config_path = IGNITE_HOME / "config.json"
 
         console.print(f"  [dim]➔ Debug:[/dim] [cyan]{debug_path}[/cyan]")
-        console.print(f"  [dim]➔ Pipeline:[/dim] [cyan]Foundry[/cyan]")
+        console.print("  [dim]➔ Pipeline:[/dim] [cyan]Foundry[/cyan]")
         console.print()
 
         if config_path.exists() and not reconfigure:
             cfg = json.loads(config_path.read_text())
-            r_model  = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
-            r_effort = cfg.get("models", {}).get("reasoning", {}).get("reasoning_effort")
+            r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
+            r_effort = (
+                cfg.get("models", {}).get("reasoning", {}).get("reasoning_effort")
+            )
             effort_hint = f", effort: {r_effort}" if r_effort else ""
-            console.print(f"  [cyan]✔[/cyan]  Config  [dim](model: {r_model}{effort_hint})[/dim]")
+            console.print(
+                f"  [cyan]✔[/cyan]  Config  [dim](model: {r_model}{effort_hint})[/dim]"
+            )
         else:
             if reconfigure:
                 console.print("  [dim]Reconfiguring …[/dim]")
             else:
-                console.print("  [dim]No config found — running first-time setup.[/dim]")
+                console.print(
+                    "  [dim]No config found — running first-time setup.[/dim]"
+                )
 
-            console.print(f"  [cyan]✔[/cyan]  Using {MANAGERS['foundry']['label']} pipeline")
+            console.print(
+                f"  [cyan]✔[/cyan]  Using {MANAGERS['foundry']['label']} pipeline"
+            )
 
             if not docker_running():
                 console.print(
