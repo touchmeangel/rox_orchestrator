@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -109,31 +110,6 @@ CUSTOM_MODEL_LABEL = "[ enter custom model id ]"
 _BACK = "← Go back"
 
 
-def _resolve_model_caps(model_id: str, prov: dict) -> dict:
-    known = {m["id"]: m for m in prov.get("models", [])}
-    if model_id in known:
-        return known[model_id]
-
-    console.print(f"  [dim]No capability info for '{model_id}' — please declare:[/dim]")
-    choice = questionary.select(
-        "This model accepts:",
-        choices=["temperature", "reasoning_effort"],
-        style=Q_STYLE,
-    ).ask()
-    if choice is None:
-        handle_abort()
-    return {
-        "id": model_id,
-        "supports_reasoning_effort": choice == "reasoning_effort",
-    }
-
-
-def build_model_params(caps: dict, effort: str | None) -> dict:
-    if caps.get("supports_reasoning_effort") and effort:
-        return {"reasoning_effort": effort}
-    return {"temperature": 0.3}
-
-
 def handle_abort() -> None:
     console.print(
         "\n\n  [dim]⚠[/dim]  [bold]Execution cancelled by user. Exiting...[/bold]\n"
@@ -152,6 +128,128 @@ def docker_running() -> bool:
         return True
     except Exception:
         return False
+
+
+def _git_repo_root(path: Path) -> Path | None:
+    git_path = shutil.which("git")
+    if not git_path:
+        return None
+    try:
+        result = subprocess.run(  # noqa: S603
+            [git_path, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            cwd=str(path),
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return Path(result.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
+def _git_remote_url(repo_root: Path) -> str | None:
+    git_path = shutil.which("git")
+    if not git_path:
+        return None
+    try:
+        result = subprocess.run(  # noqa: S603
+            [git_path, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip() or None
+    except Exception:
+        pass
+    return None
+
+
+def _repo_slug(source: str) -> str:
+    source = source.rstrip("/").removesuffix(".git")
+    parts = source.replace("\\", "/").split("/")
+    if any(host in source for host in ("github.com", "gitlab.com", "bitbucket.org")):
+        slug = "_".join(parts[-2:]) if len(parts) >= 2 else parts[-1]
+    else:
+        slug = parts[-1]
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", slug) or "repo"
+
+
+def _clone_to_cache(github_url: str, force: bool = False) -> Path:
+    slug = _repo_slug(github_url)
+    repo_path = IGNITE_HOME / "repos" / slug
+
+    if repo_path.exists() and not force:
+        console.print(
+            f"  [cyan]✔[/cyan]  Cached clone  [dim]{repo_path}[/dim]  "
+            "[dim](--fresh to re-clone)[/dim]"
+        )
+        return repo_path
+
+    if repo_path.exists() and force:
+        shutil.rmtree(repo_path)
+
+    repo_path.mkdir(parents=True, exist_ok=True)
+    git_path = shutil.which("git") or "git"
+    console.print(f"  [dim]Cloning {github_url} …[/dim]", highlight=False)
+
+    result = subprocess.run(  # noqa: S603
+        [git_path, "clone", "--depth", "1", github_url, str(repo_path)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        shutil.rmtree(repo_path, ignore_errors=True)
+        console.print(f"  [red]✗[/red]  git clone failed:\n{result.stderr.strip()}")
+        sys.exit(1)
+
+    console.print(f"  [cyan]✔[/cyan]  Cloned  [dim]{repo_path}[/dim]")
+    return repo_path
+
+
+def _prepare_repo(
+    github_url: str | None,
+    path: Path,
+    force_reclone: bool = False,
+) -> tuple[Path, str]:
+    if github_url:
+        repo_path = _clone_to_cache(github_url, force=force_reclone)
+        return repo_path, _repo_slug(github_url)
+
+    git_root = _git_repo_root(path)
+    if git_root:
+        remote_url = _git_remote_url(git_root)
+        display = remote_url if remote_url else str(git_root)
+        console.print(f"  [cyan]✔[/cyan]  Git repo  [dim]{display}[/dim]")
+        slug = _repo_slug(remote_url) if remote_url else _repo_slug(str(git_root))
+        return git_root, slug
+
+    console.print(f"  [dim]⚠  No git repository found at {path}[/dim]")
+    choice = questionary.select(
+        "How would you like to proceed?",
+        choices=[
+            "Use this directory as source",
+            "Enter a GitHub URL to clone",
+        ],
+        style=Q_STYLE,
+    ).ask()
+    if choice is None:
+        handle_abort()
+
+    if "GitHub URL" in choice:
+        entered = questionary.text("GitHub URL:", style=Q_STYLE).ask()
+        if not entered:
+            handle_abort()
+        entered = entered.strip()
+        repo_path = _clone_to_cache(entered, force=force_reclone)
+        return repo_path, _repo_slug(entered)
+
+    slug = _repo_slug(str(path))
+    console.print(f"  [cyan]✔[/cyan]  Using directory as-is  [dim]{path}[/dim]")
+    return path, slug
 
 
 def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
@@ -189,6 +287,32 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
         return []
 
 
+
+def _resolve_model_caps(model_id: str, prov: dict) -> dict:
+    known = {m["id"]: m for m in prov.get("models", [])}
+    if model_id in known:
+        return known[model_id]
+
+    console.print(f"  [dim]No capability info for '{model_id}' — please declare:[/dim]")
+    choice = questionary.select(
+        "This model accepts:",
+        choices=["temperature", "reasoning_effort"],
+        style=Q_STYLE,
+    ).ask()
+    if choice is None:
+        handle_abort()
+    return {
+        "id": model_id,
+        "supports_reasoning_effort": choice == "reasoning_effort",
+    }
+
+
+def build_model_params(caps: dict, effort: str | None) -> dict:
+    if caps.get("supports_reasoning_effort") and effort:
+        return {"reasoning_effort": effort}
+    return {"temperature": 0.3}
+
+
 def _ask_api_key(env_key: str) -> str:
     if not env_key:
         return ""
@@ -200,72 +324,6 @@ def _ask_api_key(env_key: str) -> str:
             f"  [dim]⚠  Value omitted — initialize {env_key} inside environment values later[/dim]"
         )
     return key  # type: ignore[return-value]
-
-
-CONFIRMED_PATHS_FILE = IGNITE_HOME / "confirmed_paths.json"
-
-
-def _load_confirmed_paths() -> set[str]:
-    if CONFIRMED_PATHS_FILE.exists():
-        try:
-            return set(json.loads(CONFIRMED_PATHS_FILE.read_text()))
-        except Exception:
-            return set()
-    return set()
-
-
-def _save_confirmed_paths(paths: set[str]) -> None:
-    IGNITE_HOME.mkdir(parents=True, exist_ok=True)
-    CONFIRMED_PATHS_FILE.write_text(json.dumps(sorted(paths), indent=2))
-
-
-def confirm_folder_access(project_path: str, auto_confirm: bool = False) -> None:
-    confirmed = _load_confirmed_paths()
-    if project_path in confirmed:
-        return
-
-    warning_text = (
-        f"[bold red]AGENT FILE SYSTEM ACCESS[/bold red]\n\n"
-        f"You are about to run an autonomous agent on: [cyan]{project_path}[/cyan]\n"
-        f"The agent will have full permissions to [bold]read, write, and execute tools[/bold] "
-        f"inside this directory.\n\n"
-        f"[dim]Ensure you have committed any sensitive local changes to git before proceeding.[/dim]"
-    )
-    console.print(Panel(warning_text, border_style="red", padding=(1, 2)))
-
-    if auto_confirm:
-        console.print(
-            f"  [yellow]⚠[/yellow]  [bold]-y flag set[/bold] — auto-accepting risk for [cyan]{project_path}[/cyan]\n"
-        )
-        confirmed.add(project_path)
-        _save_confirmed_paths(confirmed)
-        return
-
-    granted = questionary.confirm(
-        f"Grant the agent write permissions to {project_path}?",
-        default=False,
-        style=Q_STYLE,
-    ).ask()
-
-    if not granted:
-        console.print("\n  [dim]⚠  Execution aborted by user. Safe choice![/dim]\n")
-        sys.exit(0)
-
-    confirmed.add(project_path)
-    _save_confirmed_paths(confirmed)
-
-
-def _load_env_file() -> dict[str, str]:
-    env_path = IGNITE_HOME / ".env"
-    env: dict[str, str] = {}
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                if v:
-                    env[k] = v
-    return env
 
 
 def _ask_effort(prov: dict) -> str:
@@ -318,8 +376,7 @@ def _ask_model_profile(
             models = get_ollama_models(base_url or "")
             model = questionary.select(
                 "Select model tag:",
-                choices=(models or FALLBACK_OLLAMA_MODELS)
-                + [CUSTOM_MODEL_LABEL, _BACK],
+                choices=(models or FALLBACK_OLLAMA_MODELS) + [CUSTOM_MODEL_LABEL, _BACK],
                 style=Q_STYLE,
             ).ask()
             if model is None:
@@ -332,9 +389,7 @@ def _ask_model_profile(
                 model = questionary.text("Model tag:", style=Q_STYLE).ask()
                 if model is None:
                     handle_abort()
-                model = model or (
-                    FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else ""
-                )
+                model = model or (FALLBACK_OLLAMA_MODELS[0] if FALLBACK_OLLAMA_MODELS else "")
 
             caps = _resolve_model_caps(model, prov)
             effort: str | None = None
@@ -354,21 +409,12 @@ def _ask_model_profile(
             else:
                 console.print("  [dim]Using temperature=0.7[/dim]")
 
-            return (
-                prov["provider_str"],
-                model,
-                container_url,
-                prov["env_key"],
-                caps,
-                effort,
-            )
+            return (prov["provider_str"], model, container_url, prov["env_key"], caps, effort)
 
         if prov_key == "openrouter":
             prev_model = existing.get("model", "")
             model = questionary.text(
-                "Model ID:",
-                default=prev_model,
-                style=Q_STYLE,
+                "Model ID:", default=prev_model, style=Q_STYLE,
             ).ask()
             if model is None:
                 handle_abort()
@@ -377,14 +423,7 @@ def _ask_model_profile(
 
             caps = {"id": model, "supports_reasoning_effort": True}
             effort = _ask_effort(prov)
-            return (
-                prov["provider_str"],
-                model,
-                prov["base_url"],
-                prov["env_key"],
-                caps,
-                effort,
-            )
+            return (prov["provider_str"], model, prov["base_url"], prov["env_key"], caps, effort)
 
         model_ids = [m["id"] for m in prov["models"]]
         selected = questionary.select(
@@ -402,7 +441,6 @@ def _ask_model_profile(
                 handle_abort()
 
         caps = _resolve_model_caps(selected, prov)
-
         effort = None
         if caps.get("supports_reasoning_effort"):
             effort = _ask_effort(prov)
@@ -411,14 +449,20 @@ def _ask_model_profile(
                 "  [dim]Using temperature=0.7 (this model does not support reasoning effort)[/dim]"
             )
 
-        return (
-            prov["provider_str"],
-            selected,
-            prov.get("base_url"),
-            prov.get("env_key"),
-            caps,
-            effort,
-        )
+        return (prov["provider_str"], selected, prov.get("base_url"), prov.get("env_key"), caps, effort)
+
+
+def _load_env_file() -> dict[str, str]:
+    env_path = IGNITE_HOME / ".env"
+    env: dict[str, str] = {}
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                if v:
+                    env[k] = v
+    return env
 
 
 def run_setup() -> dict:
@@ -437,9 +481,7 @@ def run_setup() -> dict:
 
     console.print()
     console.rule("[dim]STEP 1 — Model[/dim]", style="dim")
-    provider_str, model, base_url, env_key, caps, effort = _ask_model_profile(
-        existing_model
-    )
+    provider_str, model, base_url, env_key, caps, effort = _ask_model_profile(existing_model)
 
     console.print()
     console.rule("[dim]STEP 2 — API Key[/dim]", style="dim")
@@ -519,6 +561,7 @@ def load_env_vars() -> dict[str, str]:
     return env
 
 
+
 def pull_image() -> None:
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS["foundry"]["image"]
@@ -542,7 +585,11 @@ def _ensure_debug_file(debug_path: Path) -> None:
 
 
 def run_container(
-    project_path: Path, config_path: Path, debug_path: Path, github_url: str
+    repo_path: Path,
+    work_path: Path,
+    config_path: Path,
+    debug_path: Path,
+    skip_build: bool = False,
 ) -> int:
     _ensure_debug_file(debug_path)
 
@@ -564,29 +611,29 @@ def run_container(
     if platform.system() != "Windows":
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
 
+    container_args = [
+        "--repo-path", "/repo",
+        "--work-path", "/work",
+        "--output",    "/work/agent_results.json",
+        "--debug",     "/app/debug.log",
+    ]
+    if skip_build:
+        container_args.append("--skip-build")
+
     cmd = [
         docker_path,
         "run",
         "--rm",
         "-t",
-        "-v",
-        f"{project_path}:/project",
-        "-v",
-        f"{config_path}:/app/config.json:ro",
-        "-v",
-        f"{debug_path}:/app/debug.log:rw",
+        "-v", f"{repo_path}:/repo:ro",
+        "-v", f"{work_path}:/work:rw",
+        "-v", f"{config_path}:/app/config.json:ro",
+        "-v", f"{debug_path}:/app/debug.log:rw",
         *user_mapping,
         *env_flags,
         *extra_hosts,
         image,
-        "--project-path",
-        "/project",
-        "--output",
-        "/project/agent_results.json",
-        "--debug",
-        "/app/debug.log",
-        "--github-url",
-        github_url,
+        *container_args,
     ]
 
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]\n", highlight=False)
@@ -629,14 +676,15 @@ def run_container(
 def usage() -> None:
     console.print(
         Panel(
-            "[bold]ignite[/bold] — EVM security research agent (https://github.com/touchmeangel/ignite_agent)\n\n"
-            "  [cyan]ignite[/cyan]                          [dim](Run in current directory)[/dim]\n"
-            "  [cyan]ignite -u[/cyan]                       [dim](Pull latest image and run)[/dim]\n"
-            "  ignite /path/to/project         [dim](Explicit path)[/dim]\n"
-            "  ignite /path/to/project -y      [dim](Skip folder access confirmation)[/dim]\n"
-            "  ignite . [dim]-r or --reconfigure[/dim]  [dim](Change model or API key)[/dim]\n"
-            "  ignite [dim]--github-url <url>[/dim]     [dim](Provide repository URL directly)[/dim]\n"
-            "  ignite [dim]-h or --help[/dim]",
+            "[bold]ignite[/bold] — EVM security research agent\n\n"
+            "  [cyan]ignite[/cyan]                        [dim]Run in current directory (auto-detects git)[/dim]\n"
+            "  [cyan]ignite /path/to/repo[/cyan]          [dim]Explicit local path[/dim]\n"
+            "  [cyan]ignite --github-url <url>[/cyan]     [dim]Clone and audit a public repo[/dim]\n\n"
+            "  [dim]-r  --reconfigure[/dim]               Reconfigure model / API key\n"
+            "  [dim]-u  --update[/dim]                    Pull latest Docker image before running\n"
+            "  [dim]    --fresh[/dim]                     Force re-clone even if cache exists\n"
+            "  [dim]    --skip-build[/dim]                Skip build phase, re-run analysis only\n"
+            "  [dim]-h  --help[/dim]",
             title="Usage",
             box=box.ROUNDED,
         )
@@ -647,23 +695,17 @@ def main() -> None:
     try:
         args = sys.argv[1:]
 
-        github_url = None
-        if "--github-url" in args:
-            try:
-                idx = args.index("--github-url")
-                github_url = args[idx + 1]
-                del args[idx : idx + 2]
-            except IndexError:
-                console.print("  [red]✗[/red]  Missing value for --github-url flag.")
-                sys.exit(1)
-        elif "-g" in args:
-            try:
-                idx = args.index("-g")
-                github_url = args[idx + 1]
-                del args[idx : idx + 2]
-            except IndexError:
-                console.print("  [red]✗[/red]  Missing value for -g flag.")
-                sys.exit(1)
+        github_url: str | None = None
+        for flag in ("--github-url", "-g"):
+            if flag in args:
+                try:
+                    idx = args.index(flag)
+                    github_url = args[idx + 1]
+                    del args[idx:idx + 2]
+                    break
+                except IndexError:
+                    console.print(f"  [red]✗[/red]  Missing value for {flag}.")
+                    sys.exit(1)
 
         flags = {a for a in args if a.startswith("-")}
         positional = [a for a in args if not a.startswith("-")]
@@ -672,52 +714,41 @@ def main() -> None:
             usage()
             sys.exit(0)
 
-        reconfigure = "--reconfigure" in flags or "-r" in flags
-        do_update = "--update" in flags or "-u" in flags
-        allow_folder_access = "-y" in flags
+        reconfigure   = "--reconfigure" in flags or "-r" in flags
+        do_update     = "--update"      in flags or "-u" in flags
+        force_reclone = "--fresh"       in flags
+        skip_build    = "--skip-build"  in flags
 
-        project_path = Path(".").resolve()
-
-        if len(positional) == 1:
-            project_path = Path(positional[0]).resolve()
-        elif len(positional) > 1:
+        if len(positional) > 1:
             usage()
             sys.exit(1)
 
-        if not project_path.exists():
-            console.print(
-                f"  [red]✗[/red]  Path not found: {project_path}", highlight=False
-            )
+        inspect_path = Path(positional[0]).resolve() if positional else Path(".").resolve()
+
+        if not inspect_path.exists():
+            console.print(f"  [red]✗[/red]  Path not found: {inspect_path}", highlight=False)
             sys.exit(1)
 
-        manager = "foundry"
-
-        debug_path = IGNITE_HOME / "debug.log"
-        console.print(f"  [dim]➔ Debug logging on[/dim]: [cyan]{debug_path}[/cyan]")
-        console.print("  [dim]➔ Pipeline:[/dim] [cyan]Foundry[/cyan]")
-
+        debug_path  = IGNITE_HOME / "debug.log"
         config_path = IGNITE_HOME / "config.json"
+
+        console.print(f"  [dim]➔ Debug:[/dim] [cyan]{debug_path}[/cyan]")
+        console.print(f"  [dim]➔ Pipeline:[/dim] [cyan]Foundry[/cyan]")
         console.print()
 
         if config_path.exists() and not reconfigure:
             cfg = json.loads(config_path.read_text())
-            r_model = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
-            r_effort = (
-                cfg.get("models", {}).get("reasoning", {}).get("reasoning_effort")
-            )
+            r_model  = cfg.get("models", {}).get("reasoning", {}).get("model", "?")
+            r_effort = cfg.get("models", {}).get("reasoning", {}).get("reasoning_effort")
             effort_hint = f", effort: {r_effort}" if r_effort else ""
-            console.print(
-                f"  [cyan]✔[/cyan]  Config found  [dim](model: {r_model}{effort_hint})[/dim]"
-            )
+            console.print(f"  [cyan]✔[/cyan]  Config  [dim](model: {r_model}{effort_hint})[/dim]")
         else:
             if reconfigure:
-                console.print("  [dim]Reconfiguring model …[/dim]")
+                console.print("  [dim]Reconfiguring …[/dim]")
             else:
-                console.print("  [dim]No config found — running setup.[/dim]")
+                console.print("  [dim]No config found — running first-time setup.[/dim]")
 
-            console.print(
-                f"  [cyan]✔[/cyan]  Using {MANAGERS[manager]['label']} pipeline"
-            )
+            console.print(f"  [cyan]✔[/cyan]  Using {MANAGERS['foundry']['label']} pipeline")
 
             if not docker_running():
                 console.print(
@@ -731,32 +762,33 @@ def main() -> None:
         if do_update:
             pull_image()
 
-        confirm_folder_access(str(project_path), auto_confirm=allow_folder_access)
-
-        if not github_url:
-            github_url = questionary.text(
-                "Enter GitHub repository URL:", style=Q_STYLE
-            ).ask()
-            if github_url is None:
-                handle_abort()
-            github_url = github_url.strip()
-            if not github_url:
-                console.print("  [red]✗[/red]  GitHub repository URL is required.")
-                sys.exit(1)
-
-        console.rule(style="dim")
-        console.print(
-            f"\n  Running agent  [dim]{project_path}[/dim]\n", highlight=False
+        repo_path, slug = _prepare_repo(
+            github_url=github_url,
+            path=inspect_path,
+            force_reclone=force_reclone,
         )
 
-        rc = run_container(project_path, config_path, debug_path, github_url)
+        work_path = IGNITE_HOME / "workspaces" / slug
+        work_path.mkdir(parents=True, exist_ok=True)
+        console.print(f"  [cyan]✔[/cyan]  Workspace  [dim]{work_path}[/dim]")
+
+        if skip_build:
+            console.print(
+                "  [yellow]⚠[/yellow]  [dim]--skip-build: build phase will be skipped[/dim]"
+            )
+
+        console.rule(style="dim")
+        console.print(f"\n  Running agent  [dim]{repo_path}[/dim]\n", highlight=False)
+
+        rc = run_container(repo_path, work_path, config_path, debug_path, skip_build)
         if rc != 0:
             console.print(
-                f"\n  [red]✗[/red] [bold red]Container execution failed (exit code {rc}).[/bold red]\n"
+                f"\n  [red]✗[/red] [bold red]Container execution failed "
+                f"(exit code {rc}).[/bold red]\n"
             )
             sys.exit(rc)
 
-        results_path = project_path / "agent_results.json"
+        results_path = work_path / "agent_results.json"
         completion_text = Text.assemble(
             ("AUDIT ENGINE PIPELINE COMPLETE\n\n", "bold cyan"),
             ("Status:     ", "dim"),
@@ -764,7 +796,7 @@ def main() -> None:
             ("Artifacts:  ", "dim"),
             (f"{results_path.name}\n", "cyan"),
             ("Location:   ", "dim"),
-            (f"{project_path}", "italic dim"),
+            (f"{work_path}", "italic dim"),
         )
         console.print(
             Panel(
