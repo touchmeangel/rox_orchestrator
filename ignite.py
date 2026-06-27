@@ -36,9 +36,6 @@ Q_STYLE = Style(
 MANAGERS: dict[str, dict] = {
     "foundry": {
         "label": "Foundry",
-        "detect": lambda p: (
-            (p / "foundry.toml").exists() or (p / "forge.toml").exists()
-        ),
         "image": "touchmeangel/ignite_agent:latest",
     }
 }
@@ -522,9 +519,9 @@ def load_env_vars() -> dict[str, str]:
     return env
 
 
-def pull_image(manager: str) -> None:
+def pull_image() -> None:
     docker_path = shutil.which("docker") or "docker"
-    image = MANAGERS[manager]["image"]
+    image = MANAGERS["foundry"]["image"]
     console.print(f"  [dim]Pulling latest image: {image} …[/dim]", highlight=False)
     subprocess.run([docker_path, "pull", image])  # noqa: S603, S607
     console.print("  [cyan]✔[/cyan]  Image updated.")
@@ -545,12 +542,12 @@ def _ensure_debug_file(debug_path: Path) -> None:
 
 
 def run_container(
-    manager: str, project_path: Path, config_path: Path, debug_path: Path
+    project_path: Path, config_path: Path, debug_path: Path, github_url: str
 ) -> int:
     _ensure_debug_file(debug_path)
 
     docker_path = shutil.which("docker") or "docker"
-    image = MANAGERS[manager]["image"]
+    image = MANAGERS["foundry"]["image"]
     env_vars = load_env_vars()
 
     extra_hosts = (
@@ -588,6 +585,8 @@ def run_container(
         "/project/agent_results.json",
         "--debug",
         "/app/debug.log",
+        "--github-url",
+        github_url,
     ]
 
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]\n", highlight=False)
@@ -631,14 +630,13 @@ def usage() -> None:
     console.print(
         Panel(
             "[bold]ignite[/bold] — EVM security research agent (https://github.com/touchmeangel/ignite_agent)\n\n"
-            "  [cyan]ignite[/cyan]                             [dim](Auto-detect manager in current directory)[/dim]\n"
-            "  [cyan]ignite -u[/cyan]                          [dim](Pull latest image and run)[/dim]\n"
-            "  ignite foundry .                   [dim](Explicit manager and path)[/dim]\n"
-            "  ignite /path/to/project            [dim](Explicit path, auto-detect manager)[/dim]\n"
-            "  ignite /path/to/project -y         [dim](Skip folder access confirmation)[/dim]\n"
-            "  ignite . [dim]-r or --reconfigure[/dim]         [dim](Change model or API key)[/dim]\n"
-            "  ignite [dim]-h or --help[/dim]\n\n"
-            f"  Available managers: {', '.join(MANAGERS)}",
+            "  [cyan]ignite[/cyan]                          [dim](Run in current directory)[/dim]\n"
+            "  [cyan]ignite -u[/cyan]                       [dim](Pull latest image and run)[/dim]\n"
+            "  ignite /path/to/project         [dim](Explicit path)[/dim]\n"
+            "  ignite /path/to/project -y      [dim](Skip folder access confirmation)[/dim]\n"
+            "  ignite . [dim]-r or --reconfigure[/dim]  [dim](Change model or API key)[/dim]\n"
+            "  ignite [dim]--github-url <url>[/dim]     [dim](Provide repository URL directly)[/dim]\n"
+            "  ignite [dim]-h or --help[/dim]",
             title="Usage",
             box=box.ROUNDED,
         )
@@ -648,6 +646,25 @@ def usage() -> None:
 def main() -> None:
     try:
         args = sys.argv[1:]
+
+        github_url = None
+        if "--github-url" in args:
+            try:
+                idx = args.index("--github-url")
+                github_url = args[idx + 1]
+                del args[idx:idx + 2]
+            except IndexError:
+                console.print("  [red]✗[/red]  Missing value for --github-url flag.")
+                sys.exit(1)
+        elif "-g" in args:
+            try:
+                idx = args.index("-g")
+                github_url = args[idx + 1]
+                del args[idx:idx + 2]
+            except IndexError:
+                console.print("  [red]✗[/red]  Missing value for -g flag.")
+                sys.exit(1)
+
         flags = {a for a in args if a.startswith("-")}
         positional = [a for a in args if not a.startswith("-")]
 
@@ -659,19 +676,11 @@ def main() -> None:
         do_update = "--update" in flags or "-u" in flags
         allow_folder_access = "-y" in flags
 
-        manager: str | None = None
         project_path = Path(".").resolve()
 
-        if len(positional) == 2:
-            manager = positional[0].lower()
-            project_path = Path(positional[1]).resolve()
-        elif len(positional) == 1:
-            val = positional[0]
-            if val.lower() in MANAGERS:
-                manager = val.lower()
-            else:
-                project_path = Path(val).resolve()
-        elif len(positional) > 2:
+        if len(positional) == 1:
+            project_path = Path(positional[0]).resolve()
+        elif len(positional) > 1:
             usage()
             sys.exit(1)
 
@@ -681,39 +690,11 @@ def main() -> None:
             )
             sys.exit(1)
 
-        if manager is None:
-            detected = [
-                m_name
-                for m_name, m_def in MANAGERS.items()
-                if m_def["detect"](project_path)
-            ]
-            if len(detected) == 1:
-                manager = detected[0]
-            elif len(detected) > 1:
-                console.print(
-                    f"  [red]✗[/red]  Conflict: Multiple managers detected ({', '.join(detected)})."
-                )
-                console.print(
-                    "      Please specify your target manager explicitly (e.g., ignite foundry .)"
-                )
-                sys.exit(1)
-            else:
-                console.print(
-                    f"  [red]✗[/red]  Could not auto-detect an EVM project setup at [dim]{project_path}[/dim]"
-                )
-                console.print(f"      Available options: {', '.join(MANAGERS)}")
-                sys.exit(1)
-
-        if manager not in MANAGERS:
-            console.print(
-                f"  [red]✗[/red]  Unknown manager '{manager}'. "
-                f"Available: {', '.join(MANAGERS)}"
-            )
-            sys.exit(1)
+        manager = "foundry"
 
         debug_path = IGNITE_HOME / "debug.log"
         console.print(f"  [dim]➔ Debug logging on[/dim]: [cyan]{debug_path}[/cyan]")
-        console.print(f"  [dim]➔ Detected manager:[/dim] [cyan]{manager}[/cyan]")
+        console.print(f"  [dim]➔ Pipeline:[/dim] [cyan]Foundry[/cyan]")
 
         config_path = IGNITE_HOME / "config.json"
         console.print()
@@ -734,8 +715,7 @@ def main() -> None:
             else:
                 console.print("  [dim]No config found — running setup.[/dim]")
 
-            mdef = MANAGERS[manager]
-            console.print(f"  [cyan]✔[/cyan]  Using {mdef['label']} framework pipeline")
+            console.print(f"  [cyan]✔[/cyan]  Using {MANAGERS[manager]['label']} pipeline")
 
             if not docker_running():
                 console.print(
@@ -747,16 +727,28 @@ def main() -> None:
             run_setup()
 
         if do_update:
-            pull_image(manager)
+            pull_image()
 
         confirm_folder_access(str(project_path), auto_confirm=allow_folder_access)
+
+        if not github_url:
+            github_url = questionary.text(
+                "Enter GitHub repository URL:",
+                style=Q_STYLE
+            ).ask()
+            if github_url is None:
+                handle_abort()
+            github_url = github_url.strip()
+            if not github_url:
+                console.print("  [red]✗[/red]  GitHub repository URL is required.")
+                sys.exit(1)
 
         console.rule(style="dim")
         console.print(
             f"\n  Running agent  [dim]{project_path}[/dim]\n", highlight=False
         )
 
-        rc = run_container(manager, project_path, config_path, debug_path)
+        rc = run_container(project_path, config_path, debug_path, github_url)
         if rc != 0:
             console.print(
                 f"\n  [red]✗[/red] [bold red]Container execution failed (exit code {rc}).[/bold red]\n"
