@@ -97,7 +97,7 @@ PROVIDERS: dict[str, dict] = {
     "ollama": {
         "label": "Ollama (local)",
         "models": [],
-        "env_key": None,
+        "env_key": "OLLAMA_API_KEY",
         "provider_str": "openai",
         "base_url": "http://localhost:11434/v1",
         "effort_levels": [],
