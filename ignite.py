@@ -9,7 +9,6 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import questionary
-from prompt_toolkit.formatted_text import FormattedText
 from questionary import Style
 from rich import box
 from rich.console import Console
@@ -253,7 +252,9 @@ def _prepare_repo(
     return path, slug
 
 
-def get_ollama_models(base_url: str = "http://localhost:11434") -> list[tuple[str, bool]]:
+def get_ollama_models(
+    base_url: str = "http://localhost:11434",
+) -> list[tuple[str, bool]]:
     api_base = base_url.rstrip("/")
     if api_base.endswith("/v1"):
         api_base = api_base[:-3]
@@ -356,7 +357,11 @@ def _ask_model_profile(
 
         if prov_key == "ollama":
             ollama_default = prov["base_url"] or "http://localhost:11434/v1"
-            prev_url = existing.get("base_url", ollama_default) if same_provider else ollama_default
+            prev_url = (
+                existing.get("base_url", ollama_default)
+                if same_provider
+                else ollama_default
+            )
             base_url = questionary.text(
                 "Ollama endpoint address:",
                 default=prev_url or ollama_default,
@@ -373,24 +378,21 @@ def _ask_model_profile(
             )
 
             ollama_res = get_ollama_models(base_url or "") or FALLBACK_OLLAMA_MODELS
-            
+
             formatted_choices = []
             for m_tag, tools_capable in ollama_res:
                 if tools_capable:
                     formatted_choices.append(questionary.Choice(m_tag))
                 else:
                     padded_tag = f"{m_tag:<20} [⚠ tools unconfirmed]"
-                    formatted_choices.append(questionary.Choice(
-                        title=padded_tag, 
-                        value=m_tag
-                    ))
+                    formatted_choices.append(
+                        questionary.Choice(title=padded_tag, value=m_tag)
+                    )
 
             model = questionary.select(
                 "Select model tag:",
-                choices=formatted_choices + [
-                    questionary.Choice(CUSTOM_MODEL_LABEL), 
-                    questionary.Choice(_BACK)
-                ],
+                choices=formatted_choices
+                + [questionary.Choice(CUSTOM_MODEL_LABEL), questionary.Choice(_BACK)],
                 style=Q_STYLE,
             ).ask()
             if model is None:
