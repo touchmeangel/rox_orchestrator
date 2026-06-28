@@ -363,7 +363,7 @@ def _ask_env_key_override(default_env_key: str) -> str:
     override = questionary.text(
         "API key env var for this model:",
         default=default_env_key,
-        instruction="(change to use a separate key for this entry)",
+        instruction="(press enter to use same token, change to use a separate key for this entry)",
         style=Q_STYLE,
     ).ask()
     if override is None:
