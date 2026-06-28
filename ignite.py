@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 import questionary
+from prompt_toolkit.formatted_text import FormattedText
 from questionary import Style
 from rich import box
 from rich.console import Console
@@ -105,7 +106,7 @@ PROVIDERS: dict[str, dict] = {
     },
 }
 
-FALLBACK_OLLAMA_MODELS: list[str] = []
+FALLBACK_OLLAMA_MODELS: list[tuple[str, bool]] = []
 CUSTOM_MODEL_LABEL = "[ enter custom model id ]"
 _BACK = "← Go back"
 
@@ -252,7 +253,7 @@ def _prepare_repo(
     return path, slug
 
 
-def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
+def get_ollama_models(base_url: str = "http://localhost:11434") -> list[tuple[str, bool]]:
     api_base = base_url.rstrip("/")
     if api_base.endswith("/v1"):
         api_base = api_base[:-3]
@@ -262,7 +263,7 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
         with urlopen(f"{api_base}/api/tags", timeout=4) as r:  # noqa: S310
             models = [m["name"] for m in json.loads(r.read()).get("models", [])]
 
-        tools_capable = []
+        tools_capable: list[tuple[str, bool]] = []
         for model in models:
             try:
                 result = subprocess.run(  # noqa: S603
@@ -271,17 +272,13 @@ def get_ollama_models(base_url: str = "http://localhost:11434") -> list[str]:
                     text=True,
                     timeout=5,
                 )
-                if (
+                confirmed = (
                     "{{ if .Tools }}" in result.stdout
                     or "tools" in result.stdout.lower()
-                ):
-                    tools_capable.append(model)
-                else:
-                    tools_capable.append(
-                        model + "  [dim](⚠ tools capability unconfirmed)[/dim]"
-                    )
+                )
+                tools_capable.append((model, confirmed))
             except Exception:
-                tools_capable.append(model)
+                tools_capable.append((model, True))
         return tools_capable
     except Exception:
         return []
@@ -359,11 +356,7 @@ def _ask_model_profile(
 
         if prov_key == "ollama":
             ollama_default = prov["base_url"] or "http://localhost:11434/v1"
-            prev_url = (
-                existing.get("base_url", ollama_default)
-                if same_provider
-                else ollama_default
-            )
+            prev_url = existing.get("base_url", ollama_default) if same_provider else ollama_default
             base_url = questionary.text(
                 "Ollama endpoint address:",
                 default=prev_url or ollama_default,
@@ -379,11 +372,25 @@ def _ask_model_profile(
                 .replace("127.0.0.1", "host.docker.internal")
             )
 
-            models = get_ollama_models(base_url or "")
+            ollama_res = get_ollama_models(base_url or "") or FALLBACK_OLLAMA_MODELS
+            
+            formatted_choices = []
+            for m_tag, tools_capable in ollama_res:
+                if tools_capable:
+                    formatted_choices.append(questionary.Choice(m_tag))
+                else:
+                    padded_tag = f"{m_tag:<20} [⚠ tools unconfirmed]"
+                    formatted_choices.append(questionary.Choice(
+                        title=padded_tag, 
+                        value=m_tag
+                    ))
+
             model = questionary.select(
                 "Select model tag:",
-                choices=(models or FALLBACK_OLLAMA_MODELS)
-                + [CUSTOM_MODEL_LABEL, _BACK],
+                choices=formatted_choices + [
+                    questionary.Choice(CUSTOM_MODEL_LABEL), 
+                    questionary.Choice(_BACK)
+                ],
                 style=Q_STYLE,
             ).ask()
             if model is None:
