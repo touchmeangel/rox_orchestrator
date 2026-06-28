@@ -63,9 +63,21 @@ PROVIDERS: dict[str, dict] = {
         "models": [
             {"id": "gpt-5.5", "supports_reasoning_effort": True},
             {"id": "gpt-5", "supports_reasoning_effort": True},
-            {"id": "gpt-4.1", "supports_reasoning_effort": False, "default_temperature": 0.2},
-            {"id": "gpt-4.1-mini", "supports_reasoning_effort": False, "default_temperature": 0.3},
-            {"id": "gpt-4o", "supports_reasoning_effort": False, "default_temperature": 0.3},
+            {
+                "id": "gpt-4.1",
+                "supports_reasoning_effort": False,
+                "default_temperature": 0.2,
+            },
+            {
+                "id": "gpt-4.1-mini",
+                "supports_reasoning_effort": False,
+                "default_temperature": 0.3,
+            },
+            {
+                "id": "gpt-4o",
+                "supports_reasoning_effort": False,
+                "default_temperature": 0.3,
+            },
         ],
         "env_key": "OPENAI_API_KEY",
         "provider_str": "openai",
@@ -141,7 +153,9 @@ def docker_running() -> bool:
     if not docker_path:
         return False
     try:
-        subprocess.run([docker_path, "info"], capture_output=True, check=True, timeout=10)
+        subprocess.run(  # noqa: S603
+            [docker_path, "info"], capture_output=True, check=True, timeout=10
+        )
         return True
     except Exception:
         return False
@@ -152,9 +166,12 @@ def _git_repo_root(path: Path) -> Path | None:
     if not git_path:
         return None
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             [git_path, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, cwd=str(path), timeout=5,
+            capture_output=True,
+            text=True,
+            cwd=str(path),
+            timeout=5,
         )
         if result.returncode == 0:
             return Path(result.stdout.strip())
@@ -168,9 +185,12 @@ def _git_remote_url(repo_root: Path) -> str | None:
     if not git_path:
         return None
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             [git_path, "remote", "get-url", "origin"],
-            capture_output=True, text=True, cwd=str(repo_root), timeout=5,
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=5,
         )
         if result.returncode == 0:
             return result.stdout.strip() or None
@@ -207,9 +227,10 @@ def _clone_to_cache(github_url: str, force: bool = False) -> Path:
     git_path = shutil.which("git") or "git"
     console.print(f"  [dim]Cloning {github_url} …[/dim]", highlight=False)
 
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603
         [git_path, "clone", "--depth", "1", github_url, str(repo_path)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         shutil.rmtree(repo_path, ignore_errors=True)
@@ -259,23 +280,30 @@ def _prepare_repo(
     return path, slug
 
 
-def get_ollama_models(base_url: str = "http://localhost:11434") -> list[tuple[str, bool]]:
+def get_ollama_models(
+    base_url: str = "http://localhost:11434",
+) -> list[tuple[str, bool]]:
     api_base = base_url.rstrip("/")
     if api_base.endswith("/v1"):
         api_base = api_base[:-3]
     if not (api_base.startswith("http://") or api_base.startswith("https://")):
         return []
     try:
-        with urlopen(f"{api_base}/api/tags", timeout=4) as r:
+        with urlopen(f"{api_base}/api/tags", timeout=4) as r:  # noqa: S310
             models = [m["name"] for m in json.loads(r.read()).get("models", [])]
         tools_capable: list[tuple[str, bool]] = []
         for model in models:
             try:
-                result = subprocess.run(
-                    ["ollama", "show", model, "--modelfile"],
-                    capture_output=True, text=True, timeout=5,
+                result = subprocess.run(  # noqa: S603
+                    ["ollama", "show", model, "--modelfile"],  # noqa: S607
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
-                confirmed = "{{ if .Tools }}" in result.stdout or "tools" in result.stdout.lower()
+                confirmed = (
+                    "{{ if .Tools }}" in result.stdout
+                    or "tools" in result.stdout.lower()
+                )
                 tools_capable.append((model, confirmed))
             except Exception:
                 tools_capable.append((model, True))
@@ -299,7 +327,9 @@ def _resolve_model_caps(model_id: str, prov: dict) -> dict:
     return {"id": model_id, "supports_reasoning_effort": choice == "reasoning_effort"}
 
 
-def build_model_params(caps: dict, effort: str | None, default_temperature: float = 0.3) -> dict:
+def build_model_params(
+    caps: dict, effort: str | None, default_temperature: float = 0.3
+) -> dict:
     if caps.get("supports_reasoning_effort") and effort:
         return {"reasoning_effort": effort}
     return {"temperature": default_temperature}
@@ -363,25 +393,44 @@ def _ask_model_profile(
 
         if prov_key == "ollama":
             ollama_default = prov["base_url"] or "http://localhost:11434/v1"
-            prev_url = existing.get("base_url", ollama_default) if same_provider else ollama_default
-            prev_url = (prev_url or "").replace("host.docker.internal", "localhost").replace("127.0.0.1", "localhost")
+            prev_url = (
+                existing.get("base_url", ollama_default)
+                if same_provider
+                else ollama_default
+            )
+            prev_url = (
+                (prev_url or "")
+                .replace("host.docker.internal", "localhost")
+                .replace("127.0.0.1", "localhost")
+            )
             base_url = questionary.text(
-                "Ollama endpoint address:", default=prev_url or ollama_default, style=Q_STYLE
+                "Ollama endpoint address:",
+                default=prev_url or ollama_default,
+                style=Q_STYLE,
             ).ask()
             if base_url is None:
                 handle_abort()
             base_url = base_url or prev_url
-            container_url = (base_url or "").replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
+            container_url = (
+                (base_url or "")
+                .replace("localhost", "host.docker.internal")
+                .replace("127.0.0.1", "host.docker.internal")
+            )
             ollama_res = get_ollama_models(base_url or "") or FALLBACK_OLLAMA_MODELS
             formatted_choices = []
             for m_tag, tools_capable in ollama_res:
                 if tools_capable:
                     formatted_choices.append(questionary.Choice(m_tag))
                 else:
-                    formatted_choices.append(questionary.Choice(title=f"{m_tag:<20} [⚠ tools unconfirmed]", value=m_tag))
+                    formatted_choices.append(
+                        questionary.Choice(
+                            title=f"{m_tag:<20} [⚠ tools unconfirmed]", value=m_tag
+                        )
+                    )
             model = questionary.select(
                 "Select model tag:",
-                choices=formatted_choices + [questionary.Choice(CUSTOM_MODEL_LABEL), questionary.Choice(_BACK)],
+                choices=formatted_choices
+                + [questionary.Choice(CUSTOM_MODEL_LABEL), questionary.Choice(_BACK)],
                 style=Q_STYLE,
             ).ask()
             if model is None:
@@ -395,11 +444,25 @@ def _ask_model_profile(
                 model = model or ""
             caps = _resolve_model_caps(model, prov)
             default_temp = _model_default_temp(caps, prov)
-            return (prov_key, prov["provider_str"], model, container_url, prov["env_key"], caps, None, default_temp)
+            return (
+                prov_key,
+                prov["provider_str"],
+                model,
+                container_url,
+                prov["env_key"],
+                caps,
+                None,
+                default_temp,
+            )
 
-        if "all_models_supports_reasoning" in prov or "all_models_supports_temperature" in prov:
+        if (
+            "all_models_supports_reasoning" in prov
+            or "all_models_supports_temperature" in prov
+        ):
             prev_model = existing.get("model", "") if same_provider else ""
-            model = questionary.text("Model ID:", default=prev_model, style=Q_STYLE).ask()
+            model = questionary.text(
+                "Model ID:", default=prev_model, style=Q_STYLE
+            ).ask()
             if model is None:
                 handle_abort()
             if not model:
@@ -413,7 +476,16 @@ def _ask_model_profile(
             else:
                 console.print(f"  [dim]Using temperature={default_temp}[/dim]")
             env_key = _ask_env_key_override(prov["env_key"] or "")
-            return (prov_key, prov["provider_str"], model, prov["base_url"], env_key, caps, effort, default_temp)
+            return (
+                prov_key,
+                prov["provider_str"],
+                model,
+                prov["base_url"],
+                env_key,
+                caps,
+                effort,
+                default_temp,
+            )
 
         model_ids = [m["id"] for m in prov["models"]]
         selected = questionary.select(
@@ -437,7 +509,16 @@ def _ask_model_profile(
         else:
             console.print(f"  [dim]Using temperature={default_temp}[/dim]")
         env_key = _ask_env_key_override(prov.get("env_key") or "")
-        return (prov_key, prov["provider_str"], selected, prov.get("base_url"), env_key, caps, effort, default_temp)
+        return (
+            prov_key,
+            prov["provider_str"],
+            selected,
+            prov.get("base_url"),
+            env_key,
+            caps,
+            effort,
+            default_temp,
+        )
 
 
 def _entry_from_profile(
@@ -475,12 +556,12 @@ def _entry_params_hint(entry: dict) -> str:
 
 def _print_chain(chain: list[dict]) -> None:
     t = Table(box=box.SIMPLE, show_header=True, header_style="dim", padding=(0, 1))
-    t.add_column("#",        style="dim",  width=3)
-    t.add_column("Role",     style="dim",  width=10)
-    t.add_column("Model",    style="bold", width=24)
-    t.add_column("Provider",               width=12)
-    t.add_column("Key env",  style="dim",  width=22)
-    t.add_column("Params",   style="dim")
+    t.add_column("#", style="dim", width=3)
+    t.add_column("Role", style="dim", width=10)
+    t.add_column("Model", style="bold", width=24)
+    t.add_column("Provider", width=12)
+    t.add_column("Key env", style="dim", width=22)
+    t.add_column("Params", style="dim")
 
     for i, entry in enumerate(chain):
         role = "[cyan]primary[/cyan]" if i == 0 else f"[dim]fallback {i}[/dim]"
@@ -496,7 +577,9 @@ def _print_chain(chain: list[dict]) -> None:
     console.print(Panel(t, box=box.ROUNDED, border_style="dim", padding=(0, 1)))
 
 
-def _collect_key_for_entry(entry: dict, collected_keys: dict, stored_keys: dict) -> None:
+def _collect_key_for_entry(
+    entry: dict, collected_keys: dict, stored_keys: dict
+) -> None:
     env_key = entry.get("api_key_env", "")
     if not env_key or env_key == "OLLAMA_API_KEY":
         if env_key == "OLLAMA_API_KEY":
@@ -504,13 +587,15 @@ def _collect_key_for_entry(entry: dict, collected_keys: dict, stored_keys: dict)
         return
     if collected_keys.get(env_key):
         return
-    console.print(f"\n  [dim]API key needed:[/dim]")
+    console.print("\n  [dim]API key needed:[/dim]")
     token = _ask_api_key(env_key)
     if token:
         collected_keys[env_key] = token
 
 
-def _manage_chain(chain: list[dict], collected_keys: dict, stored_keys: dict) -> list[dict]:
+def _manage_chain(
+    chain: list[dict], collected_keys: dict, stored_keys: dict
+) -> list[dict]:
     while True:
         console.print()
         _print_chain(chain)
@@ -518,23 +603,32 @@ def _manage_chain(chain: list[dict], collected_keys: dict, stored_keys: dict) ->
         choices: list = []
         for i, entry in enumerate(chain):
             label = "primary" if i == 0 else f"fallback {i}"
-            choices.append(questionary.Choice(
-                f"  Edit  {i + 1}.  {entry['model']:<26} [{label}]",
-                value=("edit", i),
-            ))
+            choices.append(
+                questionary.Choice(
+                    f"  Edit  {i + 1}.  {entry['model']:<26} [{label}]",
+                    value=("edit", i),
+                )
+            )
 
         choices.append(questionary.Separator())
 
         if len(chain) < _MAX_CHAIN_LENGTH:
-            choices.append(questionary.Choice("  ＋  Add fallback model", value=("add", None)))
+            choices.append(
+                questionary.Choice("  ＋  Add fallback model", value=("add", None))
+            )
         else:
-            choices.append(questionary.Choice(
-                f"  ＋  Add fallback model  [dim](max {_MAX_CHAIN_LENGTH} reached)[/dim]",
-                value=None, disabled=True,
-            ))
+            choices.append(
+                questionary.Choice(
+                    f"  ＋  Add fallback model  [dim](max {_MAX_CHAIN_LENGTH} reached)[/dim]",
+                    value=None,
+                    disabled=True,
+                )
+            )
 
         if len(chain) > 1:
-            choices.append(questionary.Choice("  －  Remove a model", value=("remove", None)))
+            choices.append(
+                questionary.Choice("  －  Remove a model", value=("remove", None))
+            )
 
         choices.append(questionary.Separator())
         choices.append(questionary.Choice("  ✓  Save & continue", value=("done", None)))
@@ -552,14 +646,50 @@ def _manage_chain(chain: list[dict], collected_keys: dict, stored_keys: dict) ->
 
         if verb == "edit":
             console.print(f"\n  [dim]Reconfiguring model {idx + 1} …[/dim]")
-            prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp = _ask_model_profile(chain[idx])
-            chain[idx] = _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp)
+            (
+                prov_key,
+                provider_str,
+                model,
+                base_url,
+                env_key,
+                caps,
+                effort,
+                default_temp,
+            ) = _ask_model_profile(chain[idx])
+            chain[idx] = _entry_from_profile(
+                prov_key,
+                provider_str,
+                model,
+                base_url,
+                env_key,
+                caps,
+                effort,
+                default_temp,
+            )
             _collect_key_for_entry(chain[idx], collected_keys, stored_keys)
 
         elif verb == "add":
             console.print(f"\n  [dim]Adding fallback {len(chain)} …[/dim]")
-            prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp = _ask_model_profile({})
-            new_entry = _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp)
+            (
+                prov_key,
+                provider_str,
+                model,
+                base_url,
+                env_key,
+                caps,
+                effort,
+                default_temp,
+            ) = _ask_model_profile({})
+            new_entry = _entry_from_profile(
+                prov_key,
+                provider_str,
+                model,
+                base_url,
+                env_key,
+                caps,
+                effort,
+                default_temp,
+            )
             _collect_key_for_entry(new_entry, collected_keys, stored_keys)
             chain.append(new_entry)
 
@@ -669,16 +799,20 @@ def run_setup() -> dict:
 
     console.print()
     console.rule("[dim]STEP 1 — Primary model[/dim]", style="dim")
-    prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp = _ask_model_profile(
-        existing_chain[0] if existing_chain else {}
+    prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp = (
+        _ask_model_profile(existing_chain[0] if existing_chain else {})
     )
-    primary_entry = _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp)
+    primary_entry = _entry_from_profile(
+        prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp
+    )
 
     console.print()
     console.rule("[dim]STEP 2 — API key[/dim]", style="dim")
     if env_key and env_key != "OLLAMA_API_KEY":
         if stored_keys.get(env_key):
-            keep = questionary.confirm(f"Keep existing {env_key}?", default=True, style=Q_STYLE).ask()
+            keep = questionary.confirm(
+                f"Keep existing {env_key}?", default=True, style=Q_STYLE
+            ).ask()
             if keep is None:
                 handle_abort()
             if not keep:
@@ -699,7 +833,9 @@ def run_setup() -> dict:
         "  Useful for rate limits, outages, or cost optimization. Optional.[/dim]\n"
     )
 
-    chain: list[dict] = [primary_entry] + (existing_chain[1:] if len(existing_chain) > 1 else [])
+    chain: list[dict] = [primary_entry] + (
+        existing_chain[1:] if len(existing_chain) > 1 else []
+    )
 
     manage = questionary.confirm(
         f"Manage fallback chain?  (currently {len(chain)} model{'s' if len(chain) != 1 else ''})",
@@ -728,18 +864,28 @@ def run_reconfigure() -> dict:
 
     chain = _chain_from_config(existing) if existing else []
     if not chain:
-        console.print("  [dim]No existing configuration — running first-time setup.[/dim]")
+        console.print(
+            "  [dim]No existing configuration — running first-time setup.[/dim]"
+        )
         return run_setup()
 
     stored_keys = _load_env_file()
     collected_keys = dict(stored_keys)
 
-    missing = [e for e in chain if e.get("api_key_env") and e["api_key_env"] != "OLLAMA_API_KEY" and not collected_keys.get(e["api_key_env"])]
+    missing = [
+        e
+        for e in chain
+        if e.get("api_key_env")
+        and e["api_key_env"] != "OLLAMA_API_KEY"
+        and not collected_keys.get(e["api_key_env"])
+    ]
     if missing:
         console.print()
         console.rule("[dim]Missing API keys[/dim]", style="dim")
         for entry in missing:
-            console.print(f"  [yellow]⚠[/yellow]  No stored key for [bold]{entry['api_key_env']}[/bold] (used by {entry['model']})")
+            console.print(
+                f"  [yellow]⚠[/yellow]  No stored key for [bold]{entry['api_key_env']}[/bold] (used by {entry['model']})"
+            )
             _collect_key_for_entry(entry, collected_keys, stored_keys)
 
     console.print()
@@ -761,8 +907,12 @@ def load_env_vars() -> dict[str, str]:
                 if k not in skip and v:
                     env[k] = v
     target_keys = (
-        "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY",
-        "OLLAMA_API_KEY", "OPENROUTER_API_KEY", "NAGA_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "OLLAMA_API_KEY",
+        "OPENROUTER_API_KEY",
+        "NAGA_API_KEY",
     )
     for key in target_keys:
         if key in os.environ and key not in env:
@@ -774,7 +924,7 @@ def pull_image() -> None:
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS["foundry"]["image"]
     console.print(f"  [dim]Pulling latest image: {image} …[/dim]", highlight=False)
-    subprocess.run([docker_path, "pull", image])
+    subprocess.run([docker_path, "pull", image])  # noqa: S603
     console.print("  [cyan]✔[/cyan]  Image updated.")
 
 
@@ -803,7 +953,11 @@ def run_container(
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS["foundry"]["image"]
     env_vars = load_env_vars()
-    extra_hosts = (["--add-host", "host.docker.internal:host-gateway"] if platform.system() == "Linux" else [])
+    extra_hosts = (
+        ["--add-host", "host.docker.internal:host-gateway"]
+        if platform.system() == "Linux"
+        else []
+    )
     env_flags: list[str] = []
     for k, v in env_vars.items():
         env_flags += ["-e", f"{k}={v}"]
@@ -811,28 +965,47 @@ def run_container(
     if platform.system() != "Windows":
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
     container_args = [
-        "--repo-path", "/repo",
-        "--work-path", "/work",
-        "--output", "/work/agent_results.json",
-        "--debug", "/app/debug.log",
+        "--repo-path",
+        "/repo",
+        "--work-path",
+        "/work",
+        "--output",
+        "/work/agent_results.json",
+        "--debug",
+        "/app/debug.log",
     ]
     if skip_build:
         container_args.append("--skip-build")
     cmd = [
-        docker_path, "run", "--rm", "-t",
-        "-v", f"{repo_path}:/repo:ro",
-        "-v", f"{work_path}:/work:rw",
-        "-v", f"{config_path}:/app/config.json:ro",
-        "-v", f"{debug_path}:/app/debug.log:rw",
-        *user_mapping, *env_flags, *extra_hosts, image, *container_args,
+        docker_path,
+        "run",
+        "--rm",
+        "-t",
+        "-v",
+        f"{repo_path}:/repo:ro",
+        "-v",
+        f"{work_path}:/work:rw",
+        "-v",
+        f"{config_path}:/app/config.json:ro",
+        "-v",
+        f"{debug_path}:/app/debug.log:rw",
+        *user_mapping,
+        *env_flags,
+        *extra_hosts,
+        image,
+        *container_args,
     ]
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]\n", highlight=False)
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
+    process = subprocess.Popen(  # noqa: S603
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0
+    )
     try:
         custom_spinner = Spinner("dots", text="Initializing container...", style="cyan")
         custom_spinner.frames = ["·", "*", "✷", "✸", "✹", "✺", "✹", "✸", "✷", "*"]
         custom_spinner.interval = 120
-        with Live(custom_spinner, console=console, refresh_per_second=20, transient=True) as live:
+        with Live(
+            custom_spinner, console=console, refresh_per_second=20, transient=True
+        ) as live:
             is_first_line = True
             while True:
                 chunk = process.stdout.read(1)
@@ -879,7 +1052,7 @@ __(o )>
         primary = cfg_list[0] if cfg_list else None
         if primary:
             suffix = (
-                f"  [dim]+{len(cfg_list)-1} fallback{'s' if len(cfg_list) > 2 else ''}[/dim]"
+                f"  [dim]+{len(cfg_list) - 1} fallback{'s' if len(cfg_list) > 2 else ''}[/dim]"
                 if len(cfg_list) > 1
                 else ""
             )
@@ -932,7 +1105,7 @@ def main() -> None:
                 try:
                     idx = args.index(flag)
                     github_url = args[idx + 1]
-                    del args[idx: idx + 2]
+                    del args[idx : idx + 2]
                     break
                 except IndexError:
                     console.print(f"  [red]✗[/red]  Missing value for {flag}.")
@@ -954,9 +1127,13 @@ def main() -> None:
             usage()
             sys.exit(1)
 
-        inspect_path = Path(positional[0]).resolve() if positional else Path(".").resolve()
+        inspect_path = (
+            Path(positional[0]).resolve() if positional else Path(".").resolve()
+        )
         if not inspect_path.exists():
-            console.print(f"  [red]✗[/red]  Path not found: {inspect_path}", highlight=False)
+            console.print(
+                f"  [red]✗[/red]  Path not found: {inspect_path}", highlight=False
+            )
             sys.exit(1)
 
         debug_path = IGNITE_HOME / "debug.log"
@@ -977,7 +1154,7 @@ def main() -> None:
                     else f", temp: {primary.get('temperature', '?')}"
                 )
                 fallback_hint = (
-                    f", +{len(chain)-1} fallback{'s' if len(chain) > 2 else ''}"
+                    f", +{len(chain) - 1} fallback{'s' if len(chain) > 2 else ''}"
                     if len(chain) > 1
                     else ""
                 )
@@ -987,18 +1164,26 @@ def main() -> None:
                 )
 
         elif reconfigure:
-            console.print(f"  [cyan]✔[/cyan]  Using {MANAGERS['foundry']['label']} pipeline")
+            console.print(
+                f"  [cyan]✔[/cyan]  Using {MANAGERS['foundry']['label']} pipeline"
+            )
             if not docker_running():
-                console.print("  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry.")
+                console.print(
+                    "  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry."
+                )
                 sys.exit(1)
             console.print("  [cyan]✔[/cyan]  Docker available")
             run_reconfigure()
 
         else:
             console.print("  [dim]No config found — running first-time setup.[/dim]")
-            console.print(f"  [cyan]✔[/cyan]  Using {MANAGERS['foundry']['label']} pipeline")
+            console.print(
+                f"  [cyan]✔[/cyan]  Using {MANAGERS['foundry']['label']} pipeline"
+            )
             if not docker_running():
-                console.print("  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry.")
+                console.print(
+                    "  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry."
+                )
                 sys.exit(1)
             console.print("  [cyan]✔[/cyan]  Docker available")
             run_setup()
@@ -1014,22 +1199,29 @@ def main() -> None:
         console.print(f"  [cyan]✔[/cyan]  Workspace  [dim]{work_path}[/dim]")
 
         if skip_build:
-            console.print("  [yellow]⚠[/yellow]  [dim]--skip-build: build phase will be skipped[/dim]")
+            console.print(
+                "  [yellow]⚠[/yellow]  [dim]--skip-build: build phase will be skipped[/dim]"
+            )
 
         console.rule(style="dim")
         console.print(f"\n  Running agent  [dim]{repo_path}[/dim]\n", highlight=False)
 
         rc = run_container(repo_path, work_path, config_path, debug_path, skip_build)
         if rc != 0:
-            console.print(f"\n  [red]✗[/red] [bold red]Container execution failed (exit code {rc}).[/bold red]\n")
+            console.print(
+                f"\n  [red]✗[/red] [bold red]Container execution failed (exit code {rc}).[/bold red]\n"
+            )
             sys.exit(rc)
 
         results_path = work_path / "agent_results.json"
         completion_text = Text.assemble(
             ("AUDIT ENGINE PIPELINE COMPLETE\n\n", "bold cyan"),
-            ("Status:     ", "dim"), ("Active / Success\n", "bold"),
-            ("Artifacts:  ", "dim"), (f"{results_path.name}\n", "cyan"),
-            ("Location:   ", "dim"), (f"{work_path}", "italic dim"),
+            ("Status:     ", "dim"),
+            ("Active / Success\n", "bold"),
+            ("Artifacts:  ", "dim"),
+            (f"{results_path.name}\n", "cyan"),
+            ("Location:   ", "dim"),
+            (f"{work_path}", "italic dim"),
         )
         console.print(
             Panel(
