@@ -362,6 +362,7 @@ def _ask_model_profile(
                 if same_provider
                 else ollama_default
             )
+            prev_url = (prev_url or "").replace("host.docker.internal", "localhost").replace("127.0.0.1", "localhost")
             base_url = questionary.text(
                 "Ollama endpoint address:",
                 default=prev_url or ollama_default,
