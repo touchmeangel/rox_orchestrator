@@ -94,6 +94,15 @@ PROVIDERS: dict[str, dict] = {
         "effort_levels": ["none", "minimal", "low", "medium", "high", "xhigh"],
         "default_effort": "medium",
     },
+    "naga": {
+        "label": "Naga AI",
+        "models": [],
+        "env_key": "NAGA_API_KEY",
+        "provider_str": "openai",
+        "base_url": "https://api.naga.ac/v1",
+        "effort_levels": ["none", "minimal", "low", "medium", "high", "xhigh"],
+        "default_effort": "medium",
+    },
     "ollama": {
         "label": "Ollama (local)",
         "models": [],
