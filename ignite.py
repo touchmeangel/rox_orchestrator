@@ -63,9 +63,9 @@ PROVIDERS: dict[str, dict] = {
         "models": [
             {"id": "gpt-5.5", "supports_reasoning_effort": True},
             {"id": "gpt-5", "supports_reasoning_effort": True},
-            {"id": "gpt-4.1", "supports_reasoning_effort": False},
-            {"id": "gpt-4.1-mini", "supports_reasoning_effort": False},
-            {"id": "gpt-4o", "supports_reasoning_effort": False},
+            {"id": "gpt-4.1", "supports_reasoning_effort": False, "default_temperature": 0.2},
+            {"id": "gpt-4.1-mini", "supports_reasoning_effort": False, "default_temperature": 0.3},
+            {"id": "gpt-4o", "supports_reasoning_effort": False, "default_temperature": 0.3},
         ],
         "env_key": "OPENAI_API_KEY",
         "provider_str": "openai",
@@ -298,6 +298,7 @@ def _resolve_model_caps(model_id: str, prov: dict) -> dict:
         handle_abort()
     return {"id": model_id, "supports_reasoning_effort": choice == "reasoning_effort"}
 
+
 def build_model_params(caps: dict, effort: str | None, default_temperature: float = 0.3) -> dict:
     if caps.get("supports_reasoning_effort") and effort:
         return {"reasoning_effort": effort}
@@ -340,6 +341,10 @@ def _ask_env_key_override(default_env_key: str) -> str:
     return override.strip() or default_env_key
 
 
+def _model_default_temp(caps: dict, prov: dict) -> float:
+    return caps.get("default_temperature", prov.get("default_temperature", 0.3))
+
+
 def _ask_model_profile(
     existing: dict,
 ) -> tuple[str, str, str, str | None, str | None, dict, str | None, float]:
@@ -355,7 +360,6 @@ def _ask_model_profile(
         prov_key = next(k for k, v in PROVIDERS.items() if v["label"] == provider_label)
         prov = PROVIDERS[prov_key]
         same_provider = existing.get("provider_key") == prov_key
-        default_temp: float = prov.get("default_temperature", 0.3)
 
         if prov_key == "ollama":
             ollama_default = prov["base_url"] or "http://localhost:11434/v1"
@@ -390,6 +394,7 @@ def _ask_model_profile(
                     handle_abort()
                 model = model or ""
             caps = _resolve_model_caps(model, prov)
+            default_temp = _model_default_temp(caps, prov)
             return (prov_key, prov["provider_str"], model, container_url, prov["env_key"], caps, None, default_temp)
 
         if "all_models_supports_reasoning" in prov or "all_models_supports_temperature" in prov:
@@ -401,6 +406,7 @@ def _ask_model_profile(
                 continue
             supports_reasoning = "all_models_supports_reasoning" in prov
             caps = {"id": model, "supports_reasoning_effort": supports_reasoning}
+            default_temp: float = prov.get("default_temperature", 0.3)
             effort: str | None = None
             if supports_reasoning and prov["effort_levels"]:
                 effort = _ask_effort(prov)
@@ -424,6 +430,7 @@ def _ask_model_profile(
             if not selected:
                 handle_abort()
         caps = _resolve_model_caps(selected, prov)
+        default_temp = _model_default_temp(caps, prov)
         effort = None
         if caps.get("supports_reasoning_effort"):
             effort = _ask_effort(prov)
