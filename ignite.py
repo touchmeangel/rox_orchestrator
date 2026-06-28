@@ -49,13 +49,14 @@ PROVIDERS: dict[str, dict] = {
             {"id": "claude-opus-4-8", "supports_reasoning_effort": True},
             {"id": "claude-opus-4-7", "supports_reasoning_effort": True},
             {"id": "claude-opus-4-6", "supports_reasoning_effort": True},
-            {"id": "claude-sonnet-4-6", "supports_reasoning_effort": True}
+            {"id": "claude-sonnet-4-6", "supports_reasoning_effort": True},
         ],
         "env_key": "ANTHROPIC_API_KEY",
         "provider_str": "anthropic",
         "base_url": None,
         "effort_levels": ["low", "medium", "high", "xhigh", "max"],
         "default_effort": "high",
+        "default_temperature": 0.3,
     },
     "openai": {
         "label": "OpenAI",
@@ -71,6 +72,7 @@ PROVIDERS: dict[str, dict] = {
         "base_url": None,
         "effort_levels": ["none", "low", "medium", "high", "xhigh"],
         "default_effort": "medium",
+        "default_temperature": 0.3,
     },
     "google": {
         "label": "Google",
@@ -85,6 +87,7 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "effort_levels": ["low", "medium", "high"],
         "default_effort": "medium",
+        "default_temperature": 0.3,
     },
     "openrouter": {
         "label": "OpenRouter",
@@ -94,6 +97,7 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "https://openrouter.ai/api/v1",
         "effort_levels": ["none", "minimal", "low", "medium", "high", "xhigh"],
         "default_effort": "medium",
+        "default_temperature": 0.3,
         "all_models_supports_reasoning": True,
     },
     "naga": {
@@ -104,6 +108,7 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "https://api.naga.ac/v1",
         "effort_levels": [],
         "default_effort": None,
+        "default_temperature": 0.2,
         "all_models_supports_temperature": True,
     },
     "ollama": {
@@ -114,6 +119,7 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "http://localhost:11434/v1",
         "effort_levels": [],
         "default_effort": None,
+        "default_temperature": 0.3,
     },
 }
 
@@ -292,11 +298,10 @@ def _resolve_model_caps(model_id: str, prov: dict) -> dict:
         handle_abort()
     return {"id": model_id, "supports_reasoning_effort": choice == "reasoning_effort"}
 
-
-def build_model_params(caps: dict, effort: str | None) -> dict:
+def build_model_params(caps: dict, effort: str | None, default_temperature: float = 0.3) -> dict:
     if caps.get("supports_reasoning_effort") and effort:
         return {"reasoning_effort": effort}
-    return {"temperature": 0.3}
+    return {"temperature": default_temperature}
 
 
 def _ask_api_key(env_key: str) -> str:
@@ -323,7 +328,21 @@ def _ask_effort(prov: dict) -> str:
     return effort
 
 
-def _ask_model_profile(existing: dict) -> tuple[str, str, str, str | None, str | None, dict, str | None]:
+def _ask_env_key_override(default_env_key: str) -> str:
+    override = questionary.text(
+        "API key env var for this model:",
+        default=default_env_key,
+        instruction="(change to use a separate key for this entry)",
+        style=Q_STYLE,
+    ).ask()
+    if override is None:
+        handle_abort()
+    return override.strip() or default_env_key
+
+
+def _ask_model_profile(
+    existing: dict,
+) -> tuple[str, str, str, str | None, str | None, dict, str | None, float]:
     while True:
         provider_label = questionary.select(
             "Select provider:",
@@ -336,12 +355,15 @@ def _ask_model_profile(existing: dict) -> tuple[str, str, str, str | None, str |
         prov_key = next(k for k, v in PROVIDERS.items() if v["label"] == provider_label)
         prov = PROVIDERS[prov_key]
         same_provider = existing.get("provider_key") == prov_key
+        default_temp: float = prov.get("default_temperature", 0.3)
 
         if prov_key == "ollama":
             ollama_default = prov["base_url"] or "http://localhost:11434/v1"
             prev_url = existing.get("base_url", ollama_default) if same_provider else ollama_default
             prev_url = (prev_url or "").replace("host.docker.internal", "localhost").replace("127.0.0.1", "localhost")
-            base_url = questionary.text("Ollama endpoint address:", default=prev_url or ollama_default, style=Q_STYLE).ask()
+            base_url = questionary.text(
+                "Ollama endpoint address:", default=prev_url or ollama_default, style=Q_STYLE
+            ).ask()
             if base_url is None:
                 handle_abort()
             base_url = base_url or prev_url
@@ -368,10 +390,7 @@ def _ask_model_profile(existing: dict) -> tuple[str, str, str, str | None, str |
                     handle_abort()
                 model = model or ""
             caps = _resolve_model_caps(model, prov)
-            effort: str | None = None
-            if not caps.get("supports_reasoning_effort"):
-                console.print("  [dim]Using temperature=0.3[/dim]")
-            return (prov_key, prov["provider_str"], model, container_url, prov["env_key"], caps, effort)
+            return (prov_key, prov["provider_str"], model, container_url, prov["env_key"], caps, None, default_temp)
 
         if "all_models_supports_reasoning" in prov or "all_models_supports_temperature" in prov:
             prev_model = existing.get("model", "") if same_provider else ""
@@ -382,12 +401,13 @@ def _ask_model_profile(existing: dict) -> tuple[str, str, str, str | None, str |
                 continue
             supports_reasoning = "all_models_supports_reasoning" in prov
             caps = {"id": model, "supports_reasoning_effort": supports_reasoning}
-            effort = None
+            effort: str | None = None
             if supports_reasoning and prov["effort_levels"]:
                 effort = _ask_effort(prov)
             else:
-                console.print("  [dim]Using temperature=0.3[/dim]")
-            return (prov_key, prov["provider_str"], model, prov["base_url"], prov["env_key"], caps, effort)
+                console.print(f"  [dim]Using temperature={default_temp}[/dim]")
+            env_key = _ask_env_key_override(prov["env_key"] or "")
+            return (prov_key, prov["provider_str"], model, prov["base_url"], env_key, caps, effort, default_temp)
 
         model_ids = [m["id"] for m in prov["models"]]
         selected = questionary.select(
@@ -408,12 +428,22 @@ def _ask_model_profile(existing: dict) -> tuple[str, str, str, str | None, str |
         if caps.get("supports_reasoning_effort"):
             effort = _ask_effort(prov)
         else:
-            console.print("  [dim]Using temperature=0.3[/dim]")
-        return (prov_key, prov["provider_str"], selected, prov.get("base_url"), prov.get("env_key"), caps, effort)
+            console.print(f"  [dim]Using temperature={default_temp}[/dim]")
+        env_key = _ask_env_key_override(prov.get("env_key") or "")
+        return (prov_key, prov["provider_str"], selected, prov.get("base_url"), env_key, caps, effort, default_temp)
 
 
-def _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort) -> dict:
-    params = build_model_params(caps, effort)
+def _entry_from_profile(
+    prov_key: str,
+    provider_str: str,
+    model: str,
+    base_url: str | None,
+    env_key: str | None,
+    caps: dict,
+    effort: str | None,
+    default_temperature: float = 0.3,
+) -> dict:
+    params = build_model_params(caps, effort, default_temperature)
     entry: dict = {
         "provider_key": prov_key,
         "provider": provider_str,
@@ -438,11 +468,12 @@ def _entry_params_hint(entry: dict) -> str:
 
 def _print_chain(chain: list[dict]) -> None:
     t = Table(box=box.SIMPLE, show_header=True, header_style="dim", padding=(0, 1))
-    t.add_column("#",       style="dim",  width=3)
-    t.add_column("Role",    style="dim",  width=10)
-    t.add_column("Model",   style="bold", width=24)
-    t.add_column("Provider",              width=12)
-    t.add_column("Params",  style="dim")
+    t.add_column("#",        style="dim",  width=3)
+    t.add_column("Role",     style="dim",  width=10)
+    t.add_column("Model",    style="bold", width=24)
+    t.add_column("Provider",               width=12)
+    t.add_column("Key env",  style="dim",  width=22)
+    t.add_column("Params",   style="dim")
 
     for i, entry in enumerate(chain):
         role = "[cyan]primary[/cyan]" if i == 0 else f"[dim]fallback {i}[/dim]"
@@ -451,6 +482,7 @@ def _print_chain(chain: list[dict]) -> None:
             role,
             entry.get("model", "?"),
             entry.get("provider_key", entry.get("provider", "?")),
+            entry.get("api_key_env", "—"),
             _entry_params_hint(entry),
         )
 
@@ -465,7 +497,7 @@ def _collect_key_for_entry(entry: dict, collected_keys: dict, stored_keys: dict)
         return
     if collected_keys.get(env_key):
         return
-    console.print(f"\n  [dim]API key needed for this provider:[/dim]")
+    console.print(f"\n  [dim]API key needed:[/dim]")
     token = _ask_api_key(env_key)
     if token:
         collected_keys[env_key] = token
@@ -513,14 +545,14 @@ def _manage_chain(chain: list[dict], collected_keys: dict, stored_keys: dict) ->
 
         if verb == "edit":
             console.print(f"\n  [dim]Reconfiguring model {idx + 1} …[/dim]")
-            prov_key, provider_str, model, base_url, env_key, caps, effort = _ask_model_profile(chain[idx])
-            chain[idx] = _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort)
+            prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp = _ask_model_profile(chain[idx])
+            chain[idx] = _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp)
             _collect_key_for_entry(chain[idx], collected_keys, stored_keys)
 
         elif verb == "add":
             console.print(f"\n  [dim]Adding fallback {len(chain)} …[/dim]")
-            prov_key, provider_str, model, base_url, env_key, caps, effort = _ask_model_profile({})
-            new_entry = _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort)
+            prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp = _ask_model_profile({})
+            new_entry = _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp)
             _collect_key_for_entry(new_entry, collected_keys, stored_keys)
             chain.append(new_entry)
 
@@ -589,12 +621,35 @@ def _load_env_file() -> dict[str, str]:
     return env
 
 
-def run_setup() -> dict:
+def _write_config_and_env(chain: list[dict], collected_keys: dict) -> dict:
     config_path = IGNITE_HOME / "config.json"
     env_path = IGNITE_HOME / ".env"
+
+    models_dict, routing_keys = _chain_to_config(chain)
+    config = {
+        "models": models_dict,
+        "task_routing": {
+            "reasoning": routing_keys if len(routing_keys) > 1 else routing_keys[0],
+        },
+    }
+    config_path.write_text(json.dumps(config, indent=2))
+    console.print(f"\n  [cyan]✔[/cyan]  config.json  →  {config_path}", highlight=False)
+
+    env_lines = ["# Generated by ignite — do not commit", ""]
+    for k, v in collected_keys.items():
+        if v:
+            env_lines.append(f"{k}={v}")
+    env_path.write_text("\n".join(env_lines) + "\n")
+    console.print(f"  [cyan]✔[/cyan]  .env         →  {env_path}", highlight=False)
+
+    return config
+
+
+def run_setup() -> dict:
     IGNITE_HOME.mkdir(parents=True, exist_ok=True)
 
     existing: dict = {}
+    config_path = IGNITE_HOME / "config.json"
     if config_path.exists():
         try:
             existing = json.loads(config_path.read_text())
@@ -602,16 +657,15 @@ def run_setup() -> dict:
             pass
 
     existing_chain = _chain_from_config(existing) if existing else []
-
     stored_keys = _load_env_file()
     collected_keys = dict(stored_keys)
 
     console.print()
     console.rule("[dim]STEP 1 — Primary model[/dim]", style="dim")
-    prov_key, provider_str, model, base_url, env_key, caps, effort = _ask_model_profile(
+    prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp = _ask_model_profile(
         existing_chain[0] if existing_chain else {}
     )
-    primary_entry = _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort)
+    primary_entry = _entry_from_profile(prov_key, provider_str, model, base_url, env_key, caps, effort, default_temp)
 
     console.print()
     console.rule("[dim]STEP 2 — API key[/dim]", style="dim")
@@ -651,25 +705,41 @@ def run_setup() -> dict:
     if manage:
         chain = _manage_chain(chain, collected_keys, stored_keys)
 
-    # ── Write config ──────────────────────────────────────────────────────────
-    models_dict, routing_keys = _chain_to_config(chain)
-    config = {
-        "models": models_dict,
-        "task_routing": {
-            "reasoning": routing_keys if len(routing_keys) > 1 else routing_keys[0],
-        },
-    }
-    config_path.write_text(json.dumps(config, indent=2))
-    console.print(f"\n  [cyan]✔[/cyan]  config.json  →  {config_path}", highlight=False)
+    return _write_config_and_env(chain, collected_keys)
 
-    env_lines = ["# Generated by ignite — do not commit", ""]
-    for k, v in collected_keys.items():
-        if v:
-            env_lines.append(f"{k}={v}")
-    env_path.write_text("\n".join(env_lines) + "\n")
-    console.print(f"  [cyan]✔[/cyan]  .env         →  {env_path}", highlight=False)
 
-    return config
+def run_reconfigure() -> dict:
+    IGNITE_HOME.mkdir(parents=True, exist_ok=True)
+    config_path = IGNITE_HOME / "config.json"
+
+    existing: dict = {}
+    if config_path.exists():
+        try:
+            existing = json.loads(config_path.read_text())
+        except Exception:
+            pass
+
+    chain = _chain_from_config(existing) if existing else []
+    if not chain:
+        console.print("  [dim]No existing configuration — running first-time setup.[/dim]")
+        return run_setup()
+
+    stored_keys = _load_env_file()
+    collected_keys = dict(stored_keys)
+
+    missing = [e for e in chain if e.get("api_key_env") and e["api_key_env"] != "OLLAMA_API_KEY" and not collected_keys.get(e["api_key_env"])]
+    if missing:
+        console.print()
+        console.rule("[dim]Missing API keys[/dim]", style="dim")
+        for entry in missing:
+            console.print(f"  [yellow]⚠[/yellow]  No stored key for [bold]{entry['api_key_env']}[/bold] (used by {entry['model']})")
+            _collect_key_for_entry(entry, collected_keys, stored_keys)
+
+    console.print()
+    console.rule("[dim]Current configuration[/dim]", style="dim")
+    chain = _manage_chain(chain, collected_keys, stored_keys)
+
+    return _write_config_and_env(chain, collected_keys)
 
 
 def load_env_vars() -> dict[str, str]:
@@ -683,7 +753,10 @@ def load_env_vars() -> dict[str, str]:
                 k, _, v = line.partition("=")
                 if k not in skip and v:
                     env[k] = v
-    target_keys = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "OLLAMA_API_KEY", "OPENROUTER_API_KEY", "NAGA_API_KEY")
+    target_keys = (
+        "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY",
+        "OLLAMA_API_KEY", "OPENROUTER_API_KEY", "NAGA_API_KEY",
+    )
     for key in target_keys:
         if key in os.environ and key not in env:
             env[key] = os.environ[key]
@@ -712,7 +785,13 @@ def _ensure_debug_file(debug_path: Path) -> None:
     debug_path.touch(exist_ok=True)
 
 
-def run_container(repo_path: Path, work_path: Path, config_path: Path, debug_path: Path, skip_build: bool = False) -> int:
+def run_container(
+    repo_path: Path,
+    work_path: Path,
+    config_path: Path,
+    debug_path: Path,
+    skip_build: bool = False,
+) -> int:
     _ensure_debug_file(debug_path)
     docker_path = shutil.which("docker") or "docker"
     image = MANAGERS["foundry"]["image"]
@@ -724,13 +803,22 @@ def run_container(repo_path: Path, work_path: Path, config_path: Path, debug_pat
     user_mapping: list[str] = []
     if platform.system() != "Windows":
         user_mapping = ["--user", f"{os.getuid()}:{os.getgid()}"]
-    container_args = ["--repo-path", "/repo", "--work-path", "/work", "--output", "/work/agent_results.json", "--debug", "/app/debug.log"]
+    container_args = [
+        "--repo-path", "/repo",
+        "--work-path", "/work",
+        "--output", "/work/agent_results.json",
+        "--debug", "/app/debug.log",
+    ]
     if skip_build:
         container_args.append("--skip-build")
-    cmd = [docker_path, "run", "--rm", "-t",
-           "-v", f"{repo_path}:/repo:ro", "-v", f"{work_path}:/work:rw",
-           "-v", f"{config_path}:/app/config.json:ro", "-v", f"{debug_path}:/app/debug.log:rw",
-           *user_mapping, *env_flags, *extra_hosts, image, *container_args]
+    cmd = [
+        docker_path, "run", "--rm", "-t",
+        "-v", f"{repo_path}:/repo:ro",
+        "-v", f"{work_path}:/work:rw",
+        "-v", f"{config_path}:/app/config.json:ro",
+        "-v", f"{debug_path}:/app/debug.log:rw",
+        *user_mapping, *env_flags, *extra_hosts, image, *container_args,
+    ]
     console.print(f"  [dim]$ {' '.join(cmd)}[/dim]\n", highlight=False)
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0)
     try:
@@ -783,8 +871,16 @@ __(o )>
     for key, cfg_list in MODELS.items():
         primary = cfg_list[0] if cfg_list else None
         if primary:
-            suffix = f"  [dim]+{len(cfg_list)-1} fallback{'s' if len(cfg_list)>2 else ''}[/dim]" if len(cfg_list) > 1 else ""
-            models_table.add_row(f"[{color}]{key}[/{color}]", primary.model + suffix, f"({primary.provider})")
+            suffix = (
+                f"  [dim]+{len(cfg_list)-1} fallback{'s' if len(cfg_list) > 2 else ''}[/dim]"
+                if len(cfg_list) > 1
+                else ""
+            )
+            models_table.add_row(
+                f"[{color}]{key}[/{color}]",
+                primary.model + suffix,
+                f"({primary.provider})",
+            )
 
     footer = Text.from_markup(
         f"\n[dim underline link=https://github.com/touchmeangel/ignite_agent]github.com/touchmeangel/ignite_agent[/]\n"
@@ -868,14 +964,31 @@ def main() -> None:
             chain = _chain_from_config(cfg)
             if chain:
                 primary = chain[0]
-                effort_hint = f", effort: {primary.get('reasoning_effort')}" if primary.get("reasoning_effort") else ""
-                fallback_hint = f", +{len(chain)-1} fallback{'s' if len(chain)>2 else ''}" if len(chain) > 1 else ""
-                console.print(f"  [cyan]✔[/cyan]  Config  [dim](model: {primary.get('model', '?')}{effort_hint}{fallback_hint})[/dim]")
+                effort_hint = (
+                    f", effort: {primary.get('reasoning_effort')}"
+                    if primary.get("reasoning_effort")
+                    else f", temp: {primary.get('temperature', '?')}"
+                )
+                fallback_hint = (
+                    f", +{len(chain)-1} fallback{'s' if len(chain) > 2 else ''}"
+                    if len(chain) > 1
+                    else ""
+                )
+                console.print(
+                    f"  [cyan]✔[/cyan]  Config  "
+                    f"[dim](model: {primary.get('model', '?')}{effort_hint}{fallback_hint})[/dim]"
+                )
+
+        elif reconfigure:
+            console.print(f"  [cyan]✔[/cyan]  Using {MANAGERS['foundry']['label']} pipeline")
+            if not docker_running():
+                console.print("  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry.")
+                sys.exit(1)
+            console.print("  [cyan]✔[/cyan]  Docker available")
+            run_reconfigure()
+
         else:
-            if reconfigure:
-                console.print("  [dim]Reconfiguring …[/dim]")
-            else:
-                console.print("  [dim]No config found — running first-time setup.[/dim]")
+            console.print("  [dim]No config found — running first-time setup.[/dim]")
             console.print(f"  [cyan]✔[/cyan]  Using {MANAGERS['foundry']['label']} pipeline")
             if not docker_running():
                 console.print("  [red]✗[/red]  Docker is not running. Start Docker Desktop and retry.")
@@ -886,7 +999,9 @@ def main() -> None:
         if do_update:
             pull_image()
 
-        repo_path, slug = _prepare_repo(github_url=github_url, path=inspect_path, force_reclone=force_reclone)
+        repo_path, slug = _prepare_repo(
+            github_url=github_url, path=inspect_path, force_reclone=force_reclone
+        )
         work_path = IGNITE_HOME / "workspaces" / slug
         work_path.mkdir(parents=True, exist_ok=True)
         console.print(f"  [cyan]✔[/cyan]  Workspace  [dim]{work_path}[/dim]")
@@ -909,7 +1024,16 @@ def main() -> None:
             ("Artifacts:  ", "dim"), (f"{results_path.name}\n", "cyan"),
             ("Location:   ", "dim"), (f"{work_path}", "italic dim"),
         )
-        console.print(Panel(completion_text, box=box.ROUNDED, border_style="cyan", padding=(1, 2), expand=False), highlight=False)
+        console.print(
+            Panel(
+                completion_text,
+                box=box.ROUNDED,
+                border_style="cyan",
+                padding=(1, 2),
+                expand=False,
+            ),
+            highlight=False,
+        )
         console.print()
 
     except KeyboardInterrupt:
