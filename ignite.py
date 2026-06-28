@@ -93,6 +93,7 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "https://openrouter.ai/api/v1",
         "effort_levels": ["none", "minimal", "low", "medium", "high", "xhigh"],
         "default_effort": "medium",
+        "all_models_supports_reasoning": True,
     },
     "naga": {
         "label": "Naga AI",
@@ -102,6 +103,7 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "https://api.naga.ac/v1",
         "effort_levels": ["none", "minimal", "low", "medium", "high", "xhigh"],
         "default_effort": "medium",
+        "all_models_supports_temperature": True,
     },
     "ollama": {
         "label": "Ollama (local)",
@@ -451,7 +453,10 @@ def _ask_model_profile(
                 effort,
             )
 
-        if prov_key == "openrouter":
+        # ── Providers with a hardcoded capability for all models (OpenRouter, Naga, etc.) ──
+        # Only one of all_models_supports_reasoning or all_models_supports_temperature
+        # needs to be present in the provider dict — whichever is set wins.
+        if "all_models_supports_reasoning" in prov or "all_models_supports_temperature" in prov:
             prev_model = existing.get("model", "") if same_provider else ""
             model = questionary.text(
                 "Model ID:",
@@ -463,8 +468,15 @@ def _ask_model_profile(
             if not model:
                 continue
 
-            caps = {"id": model, "supports_reasoning_effort": True}
-            effort = _ask_effort(prov)
+            supports_reasoning: bool = "all_models_supports_reasoning" in prov
+            caps = {"id": model, "supports_reasoning_effort": supports_reasoning}
+
+            effort = None
+            if supports_reasoning and prov["effort_levels"]:
+                effort = _ask_effort(prov)
+            else:
+                console.print("  [dim]Using temperature=0.3[/dim]")
+
             return (
                 prov_key,
                 prov["provider_str"],
