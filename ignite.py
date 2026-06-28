@@ -342,7 +342,7 @@ def _ask_effort(prov: dict) -> str:
 
 def _ask_model_profile(
     existing: dict,
-) -> tuple[str, str, str | None, str | None, dict, str | None]:
+) -> tuple[str, str, str, str | None, str | None, dict, str | None]:
     while True:
         provider_label = questionary.select(
             "Select provider:",
@@ -355,11 +355,14 @@ def _ask_model_profile(
         prov_key = next(k for k, v in PROVIDERS.items() if v["label"] == provider_label)
         prov = PROVIDERS[prov_key]
 
+        same_provider = existing.get("provider_key") == prov_key
+
         if prov_key == "ollama":
-            prev_url = existing.get("base_url", prov["base_url"])
+            ollama_default = prov["base_url"] or "http://localhost:11434/v1"
+            prev_url = existing.get("base_url", ollama_default) if same_provider else ollama_default
             base_url = questionary.text(
                 "Ollama endpoint address:",
-                default=prev_url or "http://localhost:11434/v1",
+                default=prev_url or ollama_default,
                 style=Q_STYLE,
             ).ask()
             if base_url is None:
@@ -412,6 +415,7 @@ def _ask_model_profile(
                 console.print("  [dim]Using temperature=0.7[/dim]")
 
             return (
+                prov_key,
                 prov["provider_str"],
                 model,
                 container_url,
@@ -421,7 +425,7 @@ def _ask_model_profile(
             )
 
         if prov_key == "openrouter":
-            prev_model = existing.get("model", "")
+            prev_model = existing.get("model", "") if same_provider else ""
             model = questionary.text(
                 "Model ID:",
                 default=prev_model,
@@ -435,6 +439,7 @@ def _ask_model_profile(
             caps = {"id": model, "supports_reasoning_effort": True}
             effort = _ask_effort(prov)
             return (
+                prov_key,
                 prov["provider_str"],
                 model,
                 prov["base_url"],
@@ -468,6 +473,7 @@ def _ask_model_profile(
             )
 
         return (
+            prov_key,
             prov["provider_str"],
             selected,
             prov.get("base_url"),
@@ -506,7 +512,7 @@ def run_setup() -> dict:
 
     console.print()
     console.rule("[dim]STEP 1 — Model[/dim]", style="dim")
-    provider_str, model, base_url, env_key, caps, effort = _ask_model_profile(
+    prov_key, provider_str, model, base_url, env_key, caps, effort = _ask_model_profile(
         existing_model
     )
 
@@ -536,6 +542,7 @@ def run_setup() -> dict:
 
     gen_params = build_model_params(caps, effort)
     entry: dict = {
+        "provider_key": prov_key,
         "provider": provider_str,
         "model": model,
         "max_tokens": 8192,
