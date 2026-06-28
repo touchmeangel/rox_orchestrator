@@ -359,7 +359,11 @@ def _ask_model_profile(
 
         if prov_key == "ollama":
             ollama_default = prov["base_url"] or "http://localhost:11434/v1"
-            prev_url = existing.get("base_url", ollama_default) if same_provider else ollama_default
+            prev_url = (
+                existing.get("base_url", ollama_default)
+                if same_provider
+                else ollama_default
+            )
             base_url = questionary.text(
                 "Ollama endpoint address:",
                 default=prev_url or ollama_default,
