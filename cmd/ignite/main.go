@@ -10,9 +10,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/touchmeangel/ignite/config"
-	"github.com/touchmeangel/ignite/pkg/agent"
-	"github.com/touchmeangel/ignite/ui"
+	"github.com/touchmeangel/ignite_orchestrator/config"
+	"github.com/touchmeangel/ignite_orchestrator/pkg/agent"
+	"github.com/touchmeangel/ignite_orchestrator/ui"
 )
 
 func main() {

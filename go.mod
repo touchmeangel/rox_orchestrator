@@ -1,4 +1,4 @@
-module github.com/touchmeangel/ignite
+module github.com/touchmeangel/ignite_orchestrator
 
 go 1.25.0
 

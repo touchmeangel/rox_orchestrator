@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/touchmeangel/ignite/config"
-	"github.com/touchmeangel/ignite/dockerx"
+	"github.com/touchmeangel/ignite_orchestrator/config"
+	"github.com/touchmeangel/ignite_orchestrator/dockerx"
 )
 
 const CoordinatorImage = "touchmeangel/ignite_coordinator:latest"

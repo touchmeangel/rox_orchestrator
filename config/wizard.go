@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/touchmeangel/ignite/ui"
+	"github.com/touchmeangel/ignite_orchestrator/ui"
 )
 
 const (

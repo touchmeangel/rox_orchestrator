@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/touchmeangel/ignite/config"
+	"github.com/touchmeangel/ignite_orchestrator/config"
 )
 
 var ErrNoRepositoryDetected = errors.New("no git repository discovered at specified destination context")
