@@ -58,6 +58,9 @@ type RunSpec struct {
 	Mounts     []Mount
 	ExtraHosts []string
 	LogFile    io.Writer
+	// LogPrefix is prepended to every streamed log line, e.g. "[mission-id] ".
+	// Useful when multiple containers run concurrently and share stdout.
+	LogPrefix string
 }
 
 var stdoutMu sync.Mutex
@@ -95,7 +98,7 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 
 	logsCtx, cancelLogs := context.WithCancel(ctx)
 	defer cancelLogs()
-	go c.streamLogs(logsCtx, id, spec.LogFile)
+	go c.streamLogs(logsCtx, id, spec.LogFile, spec.LogPrefix)
 
 	statusCh, errCh := c.cli.ContainerWait(ctx, id, container.WaitConditionNotRunning)
 	select {
@@ -112,14 +115,14 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 	}
 }
 
-func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.Writer) {
+func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.Writer, prefix string) {
 	out, err := c.cli.ContainerLogs(ctx, containerID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true})
 	if err != nil {
 		return
 	}
 	defer out.Close()
 
-	pw := &Writer{}
+	pw := &Writer{prefix: prefix}
 	var mw io.Writer = pw
 	if logFile != nil {
 		mw = io.MultiWriter(pw, logFile)
@@ -133,7 +136,8 @@ func (c *Client) Ping(ctx context.Context) bool {
 }
 
 type Writer struct {
-	buf []byte
+	buf    []byte
+	prefix string
 }
 
 func (p *Writer) Write(data []byte) (int, error) {
@@ -148,7 +152,7 @@ func (p *Writer) Write(data []byte) (int, error) {
 			line = line[:len(line)-1]
 		}
 		stdoutMu.Lock()
-		fmt.Printf("%s\n", string(line))
+		fmt.Printf("%s%s\n", p.prefix, string(line))
 		stdoutMu.Unlock()
 		p.buf = p.buf[idx+1:]
 	}
