@@ -5,15 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
-	"runtime"
 	"sync"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/pkg/stdcopy"
 )
 
 type Client struct {
@@ -60,7 +57,6 @@ type RunSpec struct {
 	Env        []string
 	Mounts     []Mount
 	ExtraHosts []string
-	LogPrefix  string
 	LogFile    io.Writer
 }
 
@@ -74,25 +70,24 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: m.Source, Target: m.Target, ReadOnly: m.ReadOnly})
 	}
 
-	cfg := &container.Config{Image: spec.Image, Tty: true, Cmd: spec.Cmd, Env: spec.Env}
-	if u := currentUserSpec(); u != "" {
-		cfg.User = u
+	cfg := &container.Config{
+		Image: spec.Image,
+		Cmd:   spec.Cmd,
+		Env:   spec.Env,
+		Tty:   true,
 	}
-	hostCfg := &container.HostConfig{Mounts: mounts, ExtraHosts: spec.ExtraHosts, AutoRemove: true}
 
-	resp, err := c.cli.ContainerCreate(
-		ctx,
-		cfg,
-		hostCfg,
-		nil,
-		nil,
-		spec.Name,
-	)
+	hostCfg := &container.HostConfig{
+		Mounts:     mounts,
+		ExtraHosts: spec.ExtraHosts,
+		AutoRemove: true,
+	}
+
+	resp, err := c.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, spec.Name)
 	if err != nil {
 		return -1, fmt.Errorf("creating container: %w", err)
 	}
 	id := resp.ID
-	defer c.cli.ContainerRemove(context.Background(), id, container.RemoveOptions{Force: true})
 
 	if err := c.cli.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
 		return -1, fmt.Errorf("starting container: %w", err)
@@ -100,7 +95,7 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 
 	logsCtx, cancelLogs := context.WithCancel(ctx)
 	defer cancelLogs()
-	go c.streamLogs(logsCtx, id, spec.LogPrefix, spec.LogFile)
+	go c.streamLogs(logsCtx, id, spec.LogFile)
 
 	statusCh, errCh := c.cli.ContainerWait(ctx, id, container.WaitConditionNotRunning)
 	select {
@@ -117,19 +112,19 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 	}
 }
 
-func (c *Client) streamLogs(ctx context.Context, containerID, prefix string, logFile io.Writer) {
+func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.Writer) {
 	out, err := c.cli.ContainerLogs(ctx, containerID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true})
 	if err != nil {
 		return
 	}
 	defer out.Close()
 
-	pw := &prefixWriter{prefix: prefix}
+	pw := &Writer{}
 	var mw io.Writer = pw
 	if logFile != nil {
 		mw = io.MultiWriter(pw, logFile)
 	}
-	_, _ = stdcopy.StdCopy(mw, mw, out)
+	_, _ = io.Copy(mw, out)
 }
 
 func (c *Client) Ping(ctx context.Context) bool {
@@ -137,31 +132,25 @@ func (c *Client) Ping(ctx context.Context) bool {
 	return err == nil
 }
 
-type prefixWriter struct {
-	prefix string
-	buf    []byte
+type Writer struct {
+	buf []byte
 }
 
-func (p *prefixWriter) Write(data []byte) (int, error) {
+func (p *Writer) Write(data []byte) (int, error) {
 	p.buf = append(p.buf, data...)
-
 	for {
 		idx := bytes.IndexByte(p.buf, '\n')
-		if idx == -1 {
+		if idx < 0 {
 			break
 		}
-
-		line := p.buf[:idx+1]
-		fmt.Printf("[%s] %s", p.prefix, string(line))
+		line := p.buf[:idx]
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+		stdoutMu.Lock()
+		fmt.Printf("%s\n", string(line))
+		stdoutMu.Unlock()
 		p.buf = p.buf[idx+1:]
 	}
-
 	return len(data), nil
-}
-
-func currentUserSpec() string {
-	if runtime.GOOS == "windows" {
-		return ""
-	}
-	return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 }

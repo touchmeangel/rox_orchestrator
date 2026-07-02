@@ -97,7 +97,6 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 			{Source: configPath, Target: "/app/config.json", ReadOnly: true},
 			{Source: debugPath, Target: "/app/debug.log", ReadOnly: false},
 		},
-		LogPrefix: "foundry",
 	}
 
 	code, err := e.dockerCli.Run(ctx, spec)
