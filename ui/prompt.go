@@ -27,13 +27,11 @@ func Select(label string, choices []string, defaultIdx int) (int, error) {
 	renderMenu := func() {
 		for i, choice := range choices {
 			if i == currentIdx {
-				// Clear current line, draw arrow indicator
 				fmt.Printf("\r\x1b[2K   %s %s\r\n", Cyan("›"), Cyan(choice))
 			} else {
 				fmt.Printf("\r\x1b[2K     %s\r\n", Dim(choice))
 			}
 		}
-		// Move cursor back up to the top of our menu block so we can redraw over it safely
 		fmt.Printf("\x1b[%dA", len(choices))
 	}
 
@@ -48,29 +46,27 @@ func Select(label string, choices []string, defaultIdx int) (int, error) {
 
 		if n == 1 {
 			switch buf[0] {
-			case 3, 4: // Ctrl+C or Ctrl+D
-				// Restore terminal layout and bubble abort error cleanly
+			case 3, 4:
 				fmt.Printf("\x1b[%dB\r\n", len(choices))
 				return -1, ErrAborted
-			case 13: // Enter key
-				// Move cursor cleanly past the menu print lines block
+			case 13:
 				fmt.Printf("\x1b[%dB\r\n", len(choices))
 				return currentIdx, nil
 			}
-		} else if n == 3 && buf[0] == 27 && buf[1] == 91 { // Escape sequencing logic for arrows
+		} else if n == 3 && buf[0] == 27 && buf[1] == 91 {
 			switch buf[2] {
-			case 65: // Arrow Up
+			case 65:
 				if currentIdx > 0 {
 					currentIdx--
 				} else {
-					currentIdx = len(choices) - 1 // wrap around
+					currentIdx = len(choices) - 1
 				}
 				renderMenu()
-			case 66: // Arrow Down
+			case 66:
 				if currentIdx < len(choices)-1 {
 					currentIdx++
 				} else {
-					currentIdx = 0 // wrap around
+					currentIdx = 0
 				}
 				renderMenu()
 			}
@@ -116,7 +112,6 @@ func Text(label, def string) (string, error) {
 			}
 			continue
 		}
-		// Print the native text character back to layout stream
 		if char >= 32 && char <= 126 {
 			input = append(input, char)
 			fmt.Print(string(char))
@@ -133,7 +128,6 @@ func Text(label, def string) (string, error) {
 	return res, nil
 }
 
-// Password reads an obscured masking configuration line securely.
 func Password(label string) (string, error) {
 	fmt.Printf("  %s: ", Bold(label))
 	state, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -144,7 +138,6 @@ func Password(label string) (string, error) {
 	return strings.TrimSpace(string(state)), nil
 }
 
-// Confirm uses immediate single key character evaluation flags.
 func Confirm(label string, def bool) (bool, error) {
 	hint := "y/N"
 	if def {

@@ -88,12 +88,29 @@ func main() {
 		if reconfigure {
 			fmt.Printf("  %s  Using Foundry pipeline\n", ui.Cyan("✔"))
 			fmt.Printf("  %s  Docker available\n", ui.Cyan("✔"))
-			cfg, _ = config.RunReconfigure()
+			cfg, err = config.RunReconfigure()
+			if err != nil {
+				if err == ui.ErrAborted {
+					fmt.Println("\n  " + ui.Dim("Configuration cancelled. Exiting cleanly."))
+					os.Exit(0)
+				}
+				fmt.Fprintf(os.Stderr, "\n  %s %v\n", ui.Red("✗"), err)
+				os.Exit(1)
+			}
+			os.Exit(0)
 		} else {
 			fmt.Println("  " + ui.Dim("No config found — running first-time setup."))
 			fmt.Printf("  %s  Using Foundry pipeline\n", ui.Cyan("✔"))
 			fmt.Printf("  %s  Docker available\n", ui.Cyan("✔"))
-			cfg, _ = config.RunSetup()
+			cfg, err = config.RunSetup()
+			if err != nil {
+				if err == ui.ErrAborted {
+					fmt.Println("\n  " + ui.Dim("Configuration cancelled. Exiting cleanly."))
+					os.Exit(0)
+				}
+				fmt.Fprintf(os.Stderr, "\n  %s %v\n", ui.Red("✗"), err)
+				os.Exit(1)
+			}
 		}
 	}
 
