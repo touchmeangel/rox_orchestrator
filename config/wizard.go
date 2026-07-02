@@ -96,19 +96,35 @@ func fetchOllamaModels(baseURL string) []string {
 }
 
 func AskModelProfile(existing ModelEntry) (Profile, error) {
+	isFreshEntry := existing.Model == ""
+
 	for {
 		labels := make([]string, len(ProviderOrder))
-		defaultIdx := 0
 		for i, k := range ProviderOrder {
 			labels[i] = Providers[k].Label
-			if k == existing.ProviderKey {
-				defaultIdx = i
+		}
+
+		labels = append(labels, backLabel)
+		backIdx := len(labels) - 1
+
+		defaultIdx := 0
+		if !isFreshEntry {
+			for i, k := range ProviderOrder {
+				if k == existing.ProviderKey {
+					defaultIdx = i
+					break
+				}
 			}
 		}
+
 		pIdx, err := ui.Select("Select provider:", labels, defaultIdx)
 		if err != nil {
 			return Profile{}, err
 		}
+		if pIdx == backIdx {
+			return Profile{}, fmt.Errorf("back")
+		}
+
 		provKey := ProviderOrder[pIdx]
 		prov := Providers[provKey]
 		sameProvider := existing.ProviderKey == provKey
@@ -119,22 +135,19 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 			if sameProvider && existing.BaseURL != "" {
 				prevURL = existing.BaseURL
 			}
-			prevURL = strings.NewReplacer(
-				"host.docker.internal", "localhost",
-				"127.0.0.1", "localhost",
-			).Replace(prevURL)
+			prevURL = strings.NewReplacer("host.docker.internal", "localhost", "127.0.0.1", "localhost").Replace(prevURL)
 
-			hostURL, err := ui.Text("Ollama endpoint address", prevURL)
+			hostURL, err := ui.Text("Ollama endpoint address (type < to go back)", prevURL)
 			if err != nil {
 				return Profile{}, err
+			}
+			if hostURL == "<" {
+				continue
 			}
 			if hostURL == "" {
 				hostURL = prevURL
 			}
-			containerURL := strings.NewReplacer(
-				"localhost", "host.docker.internal",
-				"127.0.0.1", "host.docker.internal",
-			).Replace(hostURL)
+			containerURL := strings.NewReplacer("localhost", "host.docker.internal", "127.0.0.1", "host.docker.internal").Replace(hostURL)
 
 			models := fetchOllamaModels(hostURL)
 			choices := append(append([]string{}, models...), customModelLabel, backLabel)
@@ -150,6 +163,9 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 				picked, err = ui.Text("Model tag", "")
 				if err != nil {
 					return Profile{}, err
+				}
+				if picked == "<" || picked == "" {
+					continue
 				}
 			}
 			caps, err := ResolveModelCaps(picked, prov)
@@ -167,11 +183,11 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 			if sameProvider {
 				def = existing.Model
 			}
-			model, err := ui.Text("Model ID", def)
+			model, err := ui.Text("Model ID (type < to go back)", def)
 			if err != nil {
 				return Profile{}, err
 			}
-			if model == "" {
+			if model == "" || model == "<" {
 				continue
 			}
 			caps := ModelSpec{ID: model, SupportsReasoningEffort: prov.AllModelsSupportsReasoning}
@@ -182,8 +198,6 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 				if err != nil {
 					return Profile{}, err
 				}
-			} else {
-				fmt.Println("  " + ui.Dim(fmt.Sprintf("Using temperature=%v", defaultTemp)))
 			}
 			envKey, err := AskEnvKeyOverride(prov.EnvKey)
 			if err != nil {
@@ -210,6 +224,9 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 				if err != nil {
 					return Profile{}, err
 				}
+				if picked == "" || picked == "<" {
+					continue
+				}
 			}
 			caps, err := ResolveModelCaps(picked, prov)
 			if err != nil {
@@ -222,8 +239,6 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 				if err != nil {
 					return Profile{}, err
 				}
-			} else {
-				fmt.Println("  " + ui.Dim(fmt.Sprintf("Using temperature=%v", defaultTemp)))
 			}
 			envKey, err := AskEnvKeyOverride(prov.EnvKey)
 			if err != nil {
@@ -300,9 +315,11 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 			}
 			choices = append(choices, fmt.Sprintf("Edit %d. %-24s [%s]", i+1, e.Model, role))
 		}
+
 		addIdx, removeIdx := -1, -1
 		choices = append(choices, "＋ Add fallback model")
 		addIdx = len(choices) - 1
+
 		if len(chain) > 1 {
 			choices = append(choices, "－ Remove a model")
 			removeIdx = len(choices) - 1
@@ -322,6 +339,9 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 			fmt.Println("  " + ui.Dim(fmt.Sprintf("Reconfiguring model %d …", idx+1)))
 			profile, err := AskModelProfile(chain[idx])
 			if err != nil {
+				if err.Error() == "back" || err.Error() == "cancelled by user" {
+					continue
+				}
 				return nil, err
 			}
 			chain[idx] = entryFromProfile(profile)
@@ -334,6 +354,9 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 			fmt.Println("  " + ui.Dim(fmt.Sprintf("Adding fallback %d …", len(chain))))
 			profile, err := AskModelProfile(ModelEntry{})
 			if err != nil {
+				if err.Error() == "back" || err.Error() == "cancelled by user" {
+					continue
+				}
 				return nil, err
 			}
 			entry := entryFromProfile(profile)
