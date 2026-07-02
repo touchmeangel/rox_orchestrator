@@ -236,3 +236,23 @@ func EnsureEnvironment() (string, error) {
 
 	return debugPath, nil
 }
+
+func ResolveAPIKey(e ModelEntry) string {
+	if e.APIKeyEnv != "" {
+		if val := os.Getenv(e.APIKeyEnv); val != "" {
+			return val
+		}
+		return LoadEnvFile()[e.APIKeyEnv]
+	}
+
+	fallbackMap := map[string]string{
+		"openai":    "OPENAI_API_KEY",
+		"anthropic": "ANTHROPIC_API_KEY",
+	}
+
+	envKey := fallbackMap[e.Provider]
+	if val := os.Getenv(envKey); val != "" {
+		return val
+	}
+	return LoadEnvFile()[envKey]
+}

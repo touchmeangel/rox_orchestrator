@@ -199,12 +199,17 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 					return Profile{}, err
 				}
 			}
-			envKey, err := AskEnvKeyOverride(prov.EnvKey)
+
+			defaultEnvKey := prov.EnvKey
+			if sameProvider && existing.APIKeyEnv != "" {
+				defaultEnvKey = existing.APIKeyEnv
+			}
+			envKey, err := AskEnvKeyOverride(defaultEnvKey)
 			if err != nil {
 				return Profile{}, err
 			}
-			return Profile{ProviderKey: provKey, ProviderStr: prov.ProviderStr, Model: model, BaseURL: prov.BaseURL, EnvKey: envKey, Caps: caps, Effort: effort, DefaultTemperature: defaultTemp}, nil
 
+			return Profile{ProviderKey: provKey, ProviderStr: prov.ProviderStr, Model: model, BaseURL: prov.BaseURL, EnvKey: envKey, Caps: caps, Effort: effort, DefaultTemperature: defaultTemp}, nil
 		default:
 			choices := make([]string, 0, len(prov.Models)+2)
 			for _, m := range prov.Models {
@@ -240,10 +245,16 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 					return Profile{}, err
 				}
 			}
-			envKey, err := AskEnvKeyOverride(prov.EnvKey)
+
+			defaultEnvKey := prov.EnvKey
+			if sameProvider && existing.APIKeyEnv != "" {
+				defaultEnvKey = existing.APIKeyEnv
+			}
+			envKey, err := AskEnvKeyOverride(defaultEnvKey)
 			if err != nil {
 				return Profile{}, err
 			}
+
 			return Profile{ProviderKey: provKey, ProviderStr: prov.ProviderStr, Model: picked, BaseURL: prov.BaseURL, EnvKey: envKey, Caps: caps, Effort: effort, DefaultTemperature: defaultTemp}, nil
 		}
 	}
@@ -275,26 +286,33 @@ func PrintChain(chain []ModelEntry) {
 	t.Print()
 }
 
-func CollectKeyForEntry(entry ModelEntry, collected map[string]string) error {
-	envKey := entry.APIKeyEnv
-	if envKey == "" || envKey == "OLLAMA_API_KEY" {
-		if envKey == "OLLAMA_API_KEY" {
-			collected[envKey] = "ollama"
+func CollectKeyForEntry(e ModelEntry, collected map[string]string) error {
+	envKeyName := e.APIKeyEnv
+	if envKeyName == "" {
+		if e.Provider == "anthropic" {
+			envKeyName = "ANTHROPIC_API_KEY"
+		} else {
+			envKeyName = "OPENAI_API_KEY"
 		}
+	}
+
+	if val, exists := collected[envKeyName]; exists && val != "" {
+		fmt.Printf("\n  %s  Key %s is already configured.", ui.Cyan("✔"), ui.Bold(envKeyName))
 		return nil
 	}
-	if collected[envKey] != "" {
-		return nil
-	}
-	fmt.Println()
-	fmt.Println("  " + ui.Dim("API key needed:"))
-	token, err := ui.Password(envKey)
+
+	fmt.Printf("\n  Configuring key mapping for model: %s\n", ui.Cyan(e.Model))
+
+	apiKeyValue, err := ui.Password(fmt.Sprintf("Enter Value for %s:", envKeyName), "")
 	if err != nil {
-		return err
+		fmt.Println("\n  Execution terminated.")
+		os.Exit(130)
 	}
-	if token != "" {
-		collected[envKey] = token
+
+	if apiKeyValue != "" {
+		collected[envKeyName] = apiKeyValue
 	}
+
 	return nil
 }
 
@@ -431,13 +449,14 @@ func RunSetup() (*Config, error) {
 	fmt.Println()
 	ui.Rule("STEP 2 — API key")
 	if primary.APIKeyEnv != "" && primary.APIKeyEnv != "OLLAMA_API_KEY" {
-		if storedKeys[primary.APIKeyEnv] != "" {
+		currentKeyValue := storedKeys[primary.APIKeyEnv]
+		if currentKeyValue != "" {
 			keep, err := ui.Confirm(fmt.Sprintf("Keep existing %s?", primary.APIKeyEnv), true)
 			if err != nil {
 				return nil, err
 			}
 			if !keep {
-				token, err := ui.Password(primary.APIKeyEnv)
+				token, err := ui.Password(fmt.Sprintf("Enter Value for %s:", primary.APIKeyEnv), currentKeyValue)
 				if err != nil {
 					return nil, err
 				}
@@ -446,7 +465,7 @@ func RunSetup() (*Config, error) {
 				}
 			}
 		} else {
-			token, err := ui.Password(primary.APIKeyEnv)
+			token, err := ui.Password(fmt.Sprintf("Enter Value for %s:", primary.APIKeyEnv), "")
 			if err != nil {
 				return nil, err
 			}

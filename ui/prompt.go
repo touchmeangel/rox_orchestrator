@@ -46,23 +46,23 @@ func Select(label string, choices []string, defaultIdx int) (int, error) {
 
 		if n == 1 {
 			switch buf[0] {
-			case 3, 4:
+			case 3, 4: // Ctrl+C or Ctrl+D
 				fmt.Printf("\x1b[%dB\r\n", len(choices))
 				return -1, ErrAborted
-			case 13:
+			case 13: // Enter
 				fmt.Printf("\x1b[%dB\r\n", len(choices))
 				return currentIdx, nil
 			}
-		} else if n == 3 && buf[0] == 27 && buf[1] == 91 {
+		} else if n == 3 && buf[0] == 27 && buf[1] == 91 { // Arrows
 			switch buf[2] {
-			case 65:
+			case 65: // Up
 				if currentIdx > 0 {
 					currentIdx--
 				} else {
 					currentIdx = len(choices) - 1
 				}
 				renderMenu()
-			case 66:
+			case 66: // Down
 				if currentIdx < len(choices)-1 {
 					currentIdx++
 				} else {
@@ -74,68 +74,116 @@ func Select(label string, choices []string, defaultIdx int) (int, error) {
 	}
 }
 
-func Text(label, def string) (string, error) {
-	suffix := ""
-	if def != "" {
-		suffix = " " + Dim("["+def+"]")
+func Text(label, defaultValue string) (string, error) {
+	if defaultValue != "" {
+		fmt.Printf("  %s %s", Bold(label), defaultValue)
+	} else {
+		fmt.Printf("  %s ", Bold(label))
 	}
-	fmt.Printf("  %s%s: ", Bold(label), suffix)
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		return "", err
 	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
-	var input []byte
-	buf := make([]byte, 1)
+	input := []rune(defaultValue)
+	pos := len(input)
 
+	buf := make([]byte, 3)
 	for {
-		_, err := os.Stdin.Read(buf)
+		n, err := os.Stdin.Read(buf)
 		if err != nil {
-			term.Restore(int(os.Stdin.Fd()), oldState)
 			return "", ErrAborted
 		}
 
-		char := buf[0]
-		if char == 3 || char == 4 { // Ctrl+C / Ctrl+D
-			term.Restore(int(os.Stdin.Fd()), oldState)
-			fmt.Println()
-			return "", ErrAborted
-		}
-		if char == 13 { // Enter
-			break
-		}
-		if char == 127 { // Backspace
-			if len(input) > 0 {
-				input = input[:len(input)-1]
-				fmt.Print("\b \b") // Visual wipe character
+		if n == 1 {
+			b := buf[0]
+			switch b {
+			case 3, 4: // Ctrl+C, Ctrl+D
+				fmt.Print("\r\n")
+				return "", ErrAborted
+			case 13: // Enter
+				fmt.Print("\r\n")
+				return string(input), nil
+			case 127, 8: // Backspace
+				if pos > 0 {
+					input = append(input[:pos-1], input[pos:]...)
+					pos--
+					fmt.Printf("\b\x1b[K%s", string(input[pos:]))
+					if diff := len(input) - pos; diff > 0 {
+						fmt.Printf("\x1b[%dD", diff)
+					}
+				}
+			default:
+				if b >= 32 && b <= 126 { // Printable ASCII
+					input = append(input[:pos], append([]rune{rune(b)}, input[pos:]...)...)
+					pos++
+					fmt.Printf("%c%s", b, string(input[pos:]))
+					if diff := len(input) - pos; diff > 0 {
+						fmt.Printf("\x1b[%dD", diff)
+					}
+				}
 			}
-			continue
-		}
-		if char >= 32 && char <= 126 {
-			input = append(input, char)
-			fmt.Print(string(char))
+		} else if n == 3 && buf[0] == 27 && buf[1] == 91 { // Arrows
+			switch buf[2] {
+			case 68: // Left
+				if pos > 0 {
+					pos--
+					fmt.Print("\x1b[D")
+				}
+			case 67: // Right
+				if pos < len(input) {
+					pos++
+					fmt.Print("\x1b[C")
+				}
+			}
 		}
 	}
-
-	term.Restore(int(os.Stdin.Fd()), oldState)
-	fmt.Println()
-
-	res := strings.TrimSpace(string(input))
-	if res == "" {
-		return def, nil
-	}
-	return res, nil
 }
 
-func Password(label string) (string, error) {
-	fmt.Printf("  %s: ", Bold(label))
-	state, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
+func Password(label, defaultValue string) (string, error) {
+	fmt.Printf("  %s ", Bold(label))
+
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		return "", ErrAborted
+		return "", err
 	}
-	return strings.TrimSpace(string(state)), nil
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	var input []rune
+	buf := make([]byte, 3)
+
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil {
+			return "", ErrAborted
+		}
+
+		if n == 1 {
+			b := buf[0]
+			switch b {
+			case 3, 4: // Ctrl+C, Ctrl+D
+				fmt.Print("\r\n")
+				return "", ErrAborted
+			case 13: // Enter
+				fmt.Print("\r\n")
+				val := string(input)
+				if val == "" && defaultValue != "" {
+					return defaultValue, nil
+				}
+				return val, nil
+			case 127, 8: // Backspace
+				if len(input) > 0 {
+					input = input[:len(input)-1]
+				}
+			default:
+				if b >= 32 && b <= 126 {
+					input = append(input, rune(b))
+				}
+			}
+		}
+	}
 }
 
 func Confirm(label string, def bool) (bool, error) {
@@ -157,18 +205,24 @@ func Confirm(label string, def bool) (bool, error) {
 		if err != nil {
 			return false, ErrAborted
 		}
+
 		char := buf[0]
-		if char == 3 || char == 4 {
+		if char == 3 || char == 4 { // Ctrl+C, Ctrl+D
+			fmt.Print("\r\n")
 			return false, ErrAborted
 		}
-		if char == 13 {
+		if char == 13 { // Enter
+			fmt.Print("\r\n")
 			return def, nil
 		}
+
 		charStr := strings.ToLower(string(char))
 		if charStr == "y" {
+			fmt.Print("y\r\n")
 			return true, nil
 		}
 		if charStr == "n" {
+			fmt.Print("n\r\n")
 			return false, nil
 		}
 	}
