@@ -8,12 +8,8 @@ import (
 	"strings"
 )
 
-// reader is shared so prompts compose in a sequence without losing buffered
-// input between calls.
 var reader = bufio.NewReader(os.Stdin)
 
-// ErrAborted is returned when the user sends EOF (Ctrl-D) mid-prompt —
-// callers should treat it like the old questionary "ask() -> None" abort.
 var ErrAborted = fmt.Errorf("cancelled by user")
 
 func readLine() (string, error) {
@@ -24,11 +20,6 @@ func readLine() (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-// Select prints a numbered menu and returns the chosen index. This trades
-// questionary's arrow-key nav for something that needs zero dependencies —
-// type a number, hit enter. Swap in charmbracelet/huh later if you want the
-// fancier UI back; nothing else in this package depends on how Select is
-// implemented internally.
 func Select(label string, choices []string, defaultIdx int) (int, error) {
 	fmt.Println("  " + Bold(label))
 	for i, c := range choices {
@@ -56,7 +47,6 @@ func Select(label string, choices []string, defaultIdx int) (int, error) {
 	}
 }
 
-// Text prompts for a free-text value, returning def if the user hits enter.
 func Text(label, def string) (string, error) {
 	suffix := ""
 	if def != "" {
@@ -73,10 +63,6 @@ func Text(label, def string) (string, error) {
 	return line, nil
 }
 
-// Password prompts for a secret. NOTE: this is plaintext-visible input —
-// real masking needs raw terminal mode (golang.org/x/term), a dependency
-// this package deliberately skips. `go get golang.org/x/term` and swap the
-// body of this function if that matters for your setup.
 func Password(label string) (string, error) {
 	fmt.Println("  " + Yellow("⚠") + Dim("  input below is not masked"))
 	fmt.Printf("  %s: ", Bold(label))
