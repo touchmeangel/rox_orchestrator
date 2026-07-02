@@ -67,18 +67,27 @@ type RunSpec struct {
 var stdoutMu sync.Mutex
 
 func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
+	_ = c.cli.ContainerRemove(ctx, spec.Name, container.RemoveOptions{Force: true})
+
 	mounts := make([]mount.Mount, 0, len(spec.Mounts))
 	for _, m := range spec.Mounts {
 		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: m.Source, Target: m.Target, ReadOnly: m.ReadOnly})
 	}
 
-	cfg := &container.Config{Image: spec.Image, Cmd: spec.Cmd, Env: spec.Env, Tty: false}
+	cfg := &container.Config{Image: spec.Image, Tty: true, Cmd: spec.Cmd, Env: spec.Env}
 	if u := currentUserSpec(); u != "" {
 		cfg.User = u
 	}
-	hostCfg := &container.HostConfig{Mounts: mounts, ExtraHosts: spec.ExtraHosts}
+	hostCfg := &container.HostConfig{Mounts: mounts, ExtraHosts: spec.ExtraHosts, AutoRemove: true}
 
-	resp, err := c.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, spec.Name)
+	resp, err := c.cli.ContainerCreate(
+		ctx,
+		cfg,
+		hostCfg,
+		nil,
+		nil,
+		spec.Name,
+	)
 	if err != nil {
 		return -1, fmt.Errorf("creating container: %w", err)
 	}
@@ -135,17 +144,18 @@ type prefixWriter struct {
 
 func (p *prefixWriter) Write(data []byte) (int, error) {
 	p.buf = append(p.buf, data...)
+
 	for {
 		idx := bytes.IndexByte(p.buf, '\n')
-		if idx < 0 {
+		if idx == -1 {
 			break
 		}
-		line := p.buf[:idx]
-		stdoutMu.Lock()
-		fmt.Printf("  [%s] %s\n", p.prefix, line)
-		stdoutMu.Unlock()
+
+		line := p.buf[:idx+1]
+		fmt.Printf("[%s] %s", p.prefix, string(line))
 		p.buf = p.buf[idx+1:]
 	}
+
 	return len(data), nil
 }
 
