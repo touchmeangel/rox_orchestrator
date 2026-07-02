@@ -11,6 +11,7 @@ import (
 )
 
 const CoordinatorImage = "touchmeangel/ignite_coordinator:latest"
+const WorkerImage = "touchmeangel/ignite_worker:latest"
 
 type Options struct {
 	GithubURL   string
@@ -72,7 +73,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 
 	debugPath := filepath.Join(config.IgniteHome, "debug.log")
 	configPath := config.ConfigPath()
-	resultsPath := filepath.Join(workPath, "agent_results.json")
+	resultsPath := filepath.Join(workPath, "coordinator_results.json")
 
 	envMap := config.LoadEnvVars(opts.Config)
 	var env []string
@@ -80,7 +81,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	cmdArgs := []string{"--repo-path", "/repo", "--work-path", "/work", "--output", "/work/agent_results.json", "--debug", "/app/debug.log"}
+	cmdArgs := []string{"--repo-path", "/repo", "--work-path", "/work", "--output", "/work/coordinator_results.json", "--debug", "/app/debug.log"}
 	if opts.SkipBuild {
 		cmdArgs = append(cmdArgs, "--skip-build")
 	}

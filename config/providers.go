@@ -1,34 +1,26 @@
 package config
 
-// ModelSpec is one known model under a provider.
 type ModelSpec struct {
 	ID                      string
 	SupportsReasoningEffort bool
-	// DefaultTemperature overrides the provider's default_temperature for
-	// this specific model. Only meaningful when HasDefaultTemperature.
-	DefaultTemperature    float64
-	HasDefaultTemperature bool
+	DefaultTemperature      float64
+	HasDefaultTemperature   bool
 }
 
-// Provider mirrors one entry of the Python PROVIDERS dict.
 type Provider struct {
-	Key                 string
-	Label               string
-	Models              []ModelSpec
-	EnvKey              string
-	ProviderStr         string
-	BaseURL             string
-	EffortLevels        []string
-	DefaultEffort       string
-	DefaultTemperature  float64
-	// AllModelsSupportsReasoning / AllModelsSupportsTemperature: for
-	// providers with an open-ended model list (openrouter, naga) where you
-	// type the model ID rather than pick from a fixed set.
+	Key                          string
+	Label                        string
+	Models                       []ModelSpec
+	EnvKey                       string
+	ProviderStr                  string
+	BaseURL                      string
+	EffortLevels                 []string
+	DefaultEffort                string
+	DefaultTemperature           float64
 	AllModelsSupportsReasoning   bool
 	AllModelsSupportsTemperature bool
 }
 
-// ProviderOrder fixes the menu order (Go maps don't preserve one).
 var ProviderOrder = []string{"anthropic", "openai", "google", "openrouter", "naga", "ollama"}
 
 var Providers = map[string]Provider{
@@ -109,8 +101,6 @@ var Providers = map[string]Provider{
 	},
 }
 
-// TargetEnvKeys is every env var the CLI knows how to forward into
-// containers — used by LoadEnvVars and by the .env writer.
 var TargetEnvKeys = []string{
 	"ANTHROPIC_API_KEY",
 	"OPENAI_API_KEY",
@@ -119,5 +109,3 @@ var TargetEnvKeys = []string{
 	"OPENROUTER_API_KEY",
 	"NAGA_API_KEY",
 }
-
-const MaxChainLength = 5

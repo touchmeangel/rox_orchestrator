@@ -287,7 +287,6 @@ func entryFromProfile(p Profile) ModelEntry {
 	return EntryFromProfile(p.ProviderKey, p.ProviderStr, p.Model, p.BaseURL, p.EnvKey, p.Caps, p.Effort, p.DefaultTemperature)
 }
 
-// ManageChain is the add/edit/remove/save loop over a fallback chain.
 func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry, error) {
 	for {
 		fmt.Println()
@@ -302,10 +301,8 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 			choices = append(choices, fmt.Sprintf("Edit %d. %-24s [%s]", i+1, e.Model, role))
 		}
 		addIdx, removeIdx := -1, -1
-		if len(chain) < MaxChainLength {
-			choices = append(choices, "＋ Add fallback model")
-			addIdx = len(choices) - 1
-		}
+		choices = append(choices, "＋ Add fallback model")
+		addIdx = len(choices) - 1
 		if len(chain) > 1 {
 			choices = append(choices, "－ Remove a model")
 			removeIdx = len(choices) - 1
@@ -373,14 +370,12 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 			}
 			chain = append(chain[:target], chain[target+1:]...)
 
-		default: // doneIdx
+		default:
 			return chain, nil
 		}
 	}
 }
 
-// RunSetup is the three-step first-time wizard: primary model, API key,
-// optional fallback chain.
 func RunSetup() (*Config, error) {
 	if err := os.MkdirAll(IgniteHome, 0o755); err != nil {
 		return nil, err
@@ -477,8 +472,6 @@ func RunSetup() (*Config, error) {
 	return cfg, nil
 }
 
-// RunReconfigure edits an existing chain in place, prompting for any API
-// keys that are referenced but not yet stored.
 func RunReconfigure() (*Config, error) {
 	if !Exists() {
 		fmt.Println("  " + ui.Dim("No existing configuration — running first-time setup."))
