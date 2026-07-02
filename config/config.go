@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-// ModelEntry is one chain link — schema-identical to the Python version's
-// dict entries, so config.json written by either implementation reads back
-// fine in the other during a migration.
 type ModelEntry struct {
 	ProviderKey     string   `json:"provider_key"`
 	Provider        string   `json:"provider"`
@@ -29,8 +26,6 @@ type Config struct {
 
 const ReasoningTask = "reasoning"
 
-// RoutingKeys normalizes task_routing[task], which the Python side writes
-// as either a bare string (single model) or an array (chain with fallbacks).
 func (c *Config) RoutingKeys(task string) []string {
 	if c == nil {
 		return nil
@@ -56,7 +51,6 @@ func (c *Config) RoutingKeys(task string) []string {
 	return nil
 }
 
-// ChainFromConfig resolves the reasoning task's model + fallbacks in order.
 func ChainFromConfig(cfg *Config) []ModelEntry {
 	if cfg == nil {
 		return nil
@@ -71,7 +65,6 @@ func ChainFromConfig(cfg *Config) []ModelEntry {
 	return chain
 }
 
-// ChainToConfig is the inverse: primary + fallbacks -> config.json shape.
 func ChainToConfig(chain []ModelEntry) *Config {
 	models := map[string]ModelEntry{}
 	keys := make([]string, 0, len(chain))
@@ -89,8 +82,6 @@ func ChainToConfig(chain []ModelEntry) *Config {
 	}
 	return &Config{Models: models, TaskRouting: map[string]interface{}{ReasoningTask: routing}}
 }
-
-// --- persistence ---
 
 var IgniteHome = func() string {
 	home, err := os.UserHomeDir()
@@ -150,8 +141,6 @@ func LoadEnvFile() map[string]string {
 	return env
 }
 
-// SaveEnvFile writes every non-empty key in keys, TargetEnvKeys first (for
-// a stable, diffable file) then any custom per-entry override names.
 func SaveEnvFile(keys map[string]string) error {
 	if err := os.MkdirAll(IgniteHome, 0o755); err != nil {
 		return err
@@ -175,10 +164,6 @@ func SaveEnvFile(keys map[string]string) error {
 	return os.WriteFile(EnvPath(), []byte(b.String()), 0o600)
 }
 
-// LoadEnvVars collects every env var a container launch might need: the
-// standard provider keys plus any custom api_key_env override used by an
-// entry in cfg, read from .env first and the process environment as
-// fallback (cfg may be nil if you just want the standard keys).
 func LoadEnvVars(cfg *Config) map[string]string {
 	file := LoadEnvFile()
 
@@ -207,10 +192,6 @@ func LoadEnvVars(cfg *Config) map[string]string {
 	return env
 }
 
-// --- model params ---
-
-// ModelDefaultTemp resolves the effective default temperature: a per-model
-// override if the ModelSpec declares one, else the provider's default.
 func ModelDefaultTemp(caps ModelSpec, prov Provider) float64 {
 	if caps.HasDefaultTemperature {
 		return caps.DefaultTemperature
@@ -218,8 +199,6 @@ func ModelDefaultTemp(caps ModelSpec, prov Provider) float64 {
 	return prov.DefaultTemperature
 }
 
-// BuildModelParams mirrors build_model_params: reasoning models get an
-// effort string, everything else gets a temperature.
 func BuildModelParams(caps ModelSpec, effort string, defaultTemperature float64) (reasoningEffort string, temperature *float64) {
 	if caps.SupportsReasoningEffort && effort != "" {
 		return effort, nil
@@ -228,7 +207,6 @@ func BuildModelParams(caps ModelSpec, effort string, defaultTemperature float64)
 	return "", &t
 }
 
-// EntryFromProfile builds a persistable ModelEntry from a resolved profile.
 func EntryFromProfile(providerKey, providerStr, model, baseURL, envKey string, caps ModelSpec, effort string, defaultTemperature float64) ModelEntry {
 	reasoningEffort, temperature := BuildModelParams(caps, effort, defaultTemperature)
 	return ModelEntry{
@@ -241,4 +219,20 @@ func EntryFromProfile(providerKey, providerStr, model, baseURL, envKey string, c
 		BaseURL:         baseURL,
 		APIKeyEnv:       envKey,
 	}
+}
+
+func EnsureEnvironment() (string, error) {
+	dir := IgniteHome
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("creating base system configuration folder matrix: %w", err)
+	}
+
+	debugPath := filepath.Join(dir, "debug.log")
+	f, err := os.OpenFile(debugPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return "", fmt.Errorf("initializing logging stream target file: %w", err)
+	}
+	f.Close()
+
+	return debugPath, nil
 }

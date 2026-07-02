@@ -59,9 +59,13 @@ func main() {
 		inspectPath = positional[0]
 	}
 
-	debugPath := filepath.Join(config.IgniteHome, "debug.log")
+	debugPath, err := config.EnsureEnvironment()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ✗ environment initialization failure state: %v\n", err)
+		os.Exit(1)
+	}
+
 	fmt.Printf("  %s %s\n", ui.Dim("➔ Debug:"), ui.Cyan(debugPath))
-	fmt.Printf("  %s %s\n\n", ui.Dim("➔ Pipeline:"), ui.Cyan("Foundry"))
 
 	coreEngine, err := agent.NewEngine()
 	if err != nil {
@@ -86,7 +90,6 @@ func main() {
 		}
 	} else {
 		if reconfigure {
-			fmt.Printf("  %s  Using Foundry pipeline\n", ui.Cyan("✔"))
 			fmt.Printf("  %s  Docker available\n", ui.Cyan("✔"))
 			cfg, err = config.RunReconfigure()
 			if err != nil {
@@ -99,7 +102,6 @@ func main() {
 			}
 		} else {
 			fmt.Println("  " + ui.Dim("No config found — running first-time setup."))
-			fmt.Printf("  %s  Using Foundry pipeline\n", ui.Cyan("✔"))
 			fmt.Printf("  %s  Docker available\n", ui.Cyan("✔"))
 			cfg, err = config.RunSetup()
 			if err != nil {
@@ -134,12 +136,11 @@ func main() {
 		fmt.Printf("  %s  %s\n", ui.Yellow("⚠"), ui.Dim("--skip-build: build phase will be skipped"))
 	}
 
-	ui.Rule("")
-	spinner := ui.NewSpinner("Running core engine analysis processing sequence...")
-	spinner.Start()
+	ui.Rule("Analysis Pipeline Execution")
+	fmt.Println("  " + ui.Dim("Running core engine analysis processing sequence..."))
+	fmt.Println()
 
 	res, err := coreEngine.Execute(ctx, opts)
-	spinner.Stop()
 
 	if errors.Is(err, agent.ErrNoRepositoryDetected) {
 		res, err = handleInteractivePathResolution(ctx, coreEngine, inspectPath, opts)
