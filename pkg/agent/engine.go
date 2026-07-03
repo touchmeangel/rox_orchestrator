@@ -171,7 +171,7 @@ func copyFile(src, dst string, perm os.FileMode) error {
 		return err
 	}
 
-	return os.Chmod(dst, perm)
+	return os.Chmod(dst, perm|0o200)
 }
 
 func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
