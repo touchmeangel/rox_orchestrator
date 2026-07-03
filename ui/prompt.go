@@ -238,9 +238,11 @@ func Password(label, defaultValue string) (string, error) {
 		case keyBackspace:
 			if len(input) > 0 {
 				input = input[:len(input)-1]
+				fmt.Print("\b \b")
 			}
 		case keyRunes:
 			input = append(input, ev.runes...)
+			fmt.Print(strings.Repeat("*", len(ev.runes)))
 		}
 	}
 }
