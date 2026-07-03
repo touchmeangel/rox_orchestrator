@@ -213,7 +213,7 @@ func EntryFromProfile(providerKey, providerStr, model, baseURL, envKey string, c
 		ProviderKey:     providerKey,
 		Provider:        providerStr,
 		Model:           model,
-		MaxTokens:       8192,
+		MaxTokens:       8000,
 		ReasoningEffort: reasoningEffort,
 		Temperature:     temperature,
 		BaseURL:         baseURL,
