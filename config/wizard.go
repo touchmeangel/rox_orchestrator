@@ -95,7 +95,16 @@ func fetchOllamaModels(baseURL string) []string {
 	return names
 }
 
-func AskModelProfile(existing ModelEntry) (Profile, error) {
+func lastModelForProvider(chain []ModelEntry, providerKey string) string {
+	for i := len(chain) - 1; i >= 0; i-- {
+		if chain[i].ProviderKey == providerKey && chain[i].Model != "" {
+			return chain[i].Model
+		}
+	}
+	return ""
+}
+
+func AskModelProfile(existing ModelEntry, currentChain []ModelEntry) (Profile, error) {
 	isFreshEntry := existing.Model == ""
 
 	for {
@@ -129,6 +138,16 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 		prov := Providers[provKey]
 		sameProvider := existing.ProviderKey == provKey
 
+		var fallbackModelSuggestion string
+		if sameProvider {
+			fallbackModelSuggestion = existing.Model
+		} else {
+			fallbackModelSuggestion = lastModelForProvider(currentChain, provKey)
+		}
+
+		var picked string
+		finalBaseURL := prov.BaseURL
+
 		switch {
 		case provKey == "ollama":
 			prevURL := prov.BaseURL
@@ -147,7 +166,7 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 			if hostURL == "" {
 				hostURL = prevURL
 			}
-			containerURL := strings.NewReplacer("localhost", "host.docker.internal", "127.0.0.1", "host.docker.internal").Replace(hostURL)
+			finalBaseURL = strings.NewReplacer("localhost", "host.docker.internal", "127.0.0.1", "host.docker.internal").Replace(hostURL)
 
 			models := fetchOllamaModels(hostURL)
 			choices := append(append([]string{}, models...), customModelLabel, backLabel)
@@ -155,61 +174,36 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 			if err != nil {
 				return Profile{}, err
 			}
-			picked := choices[idx]
+			picked = choices[idx]
+
 			if picked == backLabel {
 				continue
 			}
 			if picked == customModelLabel {
-				picked, err = ui.Text("Model tag", "")
+				picked, err = ui.Text("Model tag (enter to reuse string)", fallbackModelSuggestion)
 				if err != nil {
 					return Profile{}, err
 				}
-				if picked == "<" || picked == "" {
+				if picked == "<" {
 					continue
 				}
-			}
-			caps, err := ResolveModelCaps(picked, prov)
-			if err != nil {
-				return Profile{}, err
-			}
-			return Profile{
-				ProviderKey: provKey, ProviderStr: prov.ProviderStr, Model: picked,
-				BaseURL: containerURL, EnvKey: prov.EnvKey, Caps: caps,
-				DefaultTemperature: ModelDefaultTemp(caps, prov),
-			}, nil
-
-		case prov.AllModelsSupportsReasoning || prov.AllModelsSupportsTemperature:
-			def := ""
-			if sameProvider {
-				def = existing.Model
-			}
-			model, err := ui.Text("Model ID (type < to go back)", def)
-			if err != nil {
-				return Profile{}, err
-			}
-			if model == "" || model == "<" {
-				continue
-			}
-			caps := ModelSpec{ID: model, SupportsReasoningEffort: prov.AllModelsSupportsReasoning}
-			defaultTemp := prov.DefaultTemperature
-			effort := ""
-			if caps.SupportsReasoningEffort && len(prov.EffortLevels) > 0 {
-				effort, err = AskEffort(prov)
-				if err != nil {
-					return Profile{}, err
+				if picked == "" {
+					picked = fallbackModelSuggestion
 				}
 			}
 
-			defaultEnvKey := prov.EnvKey
-			if sameProvider && existing.APIKeyEnv != "" {
-				defaultEnvKey = existing.APIKeyEnv
-			}
-			envKey, err := AskEnvKeyOverride(defaultEnvKey)
+		case len(prov.Models) == 0 || prov.AllModelsSupportsReasoning || prov.AllModelsSupportsTemperature:
+			picked, err = ui.Text("Model ID (enter to reuse string, type < to go back)", fallbackModelSuggestion)
 			if err != nil {
 				return Profile{}, err
 			}
+			if picked == "<" {
+				continue
+			}
+			if picked == "" {
+				picked = fallbackModelSuggestion
+			}
 
-			return Profile{ProviderKey: provKey, ProviderStr: prov.ProviderStr, Model: model, BaseURL: prov.BaseURL, EnvKey: envKey, Caps: caps, Effort: effort, DefaultTemperature: defaultTemp}, nil
 		default:
 			choices := make([]string, 0, len(prov.Models)+2)
 			for _, m := range prov.Models {
@@ -220,43 +214,70 @@ func AskModelProfile(existing ModelEntry) (Profile, error) {
 			if err != nil {
 				return Profile{}, err
 			}
-			picked := choices[idx]
+			picked = choices[idx]
+
 			if picked == backLabel {
 				continue
 			}
 			if picked == customModelLabel {
-				picked, err = ui.Text("Model signature string", "")
+				picked, err = ui.Text("Model signature string (enter to reuse string)", fallbackModelSuggestion)
 				if err != nil {
 					return Profile{}, err
 				}
-				if picked == "" || picked == "<" {
+				if picked == "<" {
 					continue
 				}
-			}
-			caps, err := ResolveModelCaps(picked, prov)
-			if err != nil {
-				return Profile{}, err
-			}
-			defaultTemp := ModelDefaultTemp(caps, prov)
-			effort := ""
-			if caps.SupportsReasoningEffort {
-				effort, err = AskEffort(prov)
-				if err != nil {
-					return Profile{}, err
+				if picked == "" {
+					picked = fallbackModelSuggestion
 				}
 			}
+		}
 
-			defaultEnvKey := prov.EnvKey
-			if sameProvider && existing.APIKeyEnv != "" {
-				defaultEnvKey = existing.APIKeyEnv
-			}
-			envKey, err := AskEnvKeyOverride(defaultEnvKey)
+		if picked == "" {
+			continue
+		}
+
+		var caps ModelSpec
+		var defaultTemp float64
+
+		if prov.AllModelsSupportsReasoning || prov.AllModelsSupportsTemperature {
+			caps = ModelSpec{ID: picked, SupportsReasoningEffort: prov.AllModelsSupportsReasoning}
+			defaultTemp = prov.DefaultTemperature
+		} else {
+			caps, err = ResolveModelCaps(picked, prov)
 			if err != nil {
 				return Profile{}, err
 			}
-
-			return Profile{ProviderKey: provKey, ProviderStr: prov.ProviderStr, Model: picked, BaseURL: prov.BaseURL, EnvKey: envKey, Caps: caps, Effort: effort, DefaultTemperature: defaultTemp}, nil
+			defaultTemp = ModelDefaultTemp(caps, prov)
 		}
+
+		effort := ""
+		if caps.SupportsReasoningEffort && len(prov.EffortLevels) > 0 {
+			effort, err = AskEffort(prov)
+			if err != nil {
+				return Profile{}, err
+			}
+		}
+
+		defaultEnvKey := prov.EnvKey
+		if sameProvider && existing.APIKeyEnv != "" {
+			defaultEnvKey = existing.APIKeyEnv
+		}
+		envKey, err := AskEnvKeyOverride(defaultEnvKey)
+		if err != nil {
+			return Profile{}, err
+		}
+
+		return Profile{
+			ProviderKey:        provKey,
+			ProviderStr:        prov.ProviderStr,
+			Model:              picked,
+			BaseURL:            finalBaseURL,
+			EnvKey:             envKey,
+			Caps:               caps,
+			Effort:             effort,
+			DefaultTemperature: defaultTemp,
+		}, nil
 	}
 }
 
@@ -286,7 +307,7 @@ func PrintChain(chain []ModelEntry) {
 	t.Print()
 }
 
-func CollectKeyForEntry(e ModelEntry, collected map[string]string) error {
+func CollectKeyForEntry(e ModelEntry, collected map[string]string, promptOverride bool) error {
 	envKeyName := e.APIKeyEnv
 	if envKeyName == "" {
 		if e.Provider == "anthropic" {
@@ -296,14 +317,24 @@ func CollectKeyForEntry(e ModelEntry, collected map[string]string) error {
 		}
 	}
 
-	if val, exists := collected[envKeyName]; exists && val != "" {
-		fmt.Printf("\n  %s  Key %s is already configured.", ui.Cyan("✔"), ui.Bold(envKeyName))
+	if envKeyName == "OLLAMA_API_KEY" {
+		collected[envKeyName] = "ollama"
 		return nil
 	}
 
-	fmt.Printf("\n  Configuring key mapping for model: %s\n", ui.Cyan(e.Model))
+	val, exists := collected[envKeyName]
 
-	apiKeyValue, err := ui.Password(fmt.Sprintf("Enter Value for %s:", envKeyName), "")
+	if exists && val != "" {
+		if !promptOverride {
+			fmt.Printf("\n  %s  Key %s is already configured.\n", ui.Cyan("✔"), ui.Bold(envKeyName))
+			return nil
+		}
+		fmt.Printf("\n  %s is already set. Press Enter to keep the existing key.\n", ui.Bold(envKeyName))
+	} else {
+		fmt.Printf("\n  Configuring key mapping for model: %s\n", ui.Cyan(e.Model))
+	}
+
+	apiKeyValue, err := ui.Password(fmt.Sprintf("Enter value for %s:", envKeyName), "")
 	if err != nil {
 		fmt.Println("\n  Execution terminated.")
 		os.Exit(130)
@@ -351,37 +382,42 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 		}
 
 		switch {
-		case choice < len(chain):
+		case choice < len(chain) || choice == addIdx:
+			isAdd := choice == addIdx
 			idx := choice
-			fmt.Println()
-			fmt.Println("  " + ui.Dim(fmt.Sprintf("Reconfiguring model %d …", idx+1)))
-			profile, err := AskModelProfile(chain[idx])
+
+			if isAdd {
+				fmt.Println()
+				fmt.Println("  " + ui.Dim(fmt.Sprintf("Adding fallback %d …", len(chain))))
+			} else {
+				fmt.Println()
+				fmt.Println("  " + ui.Dim(fmt.Sprintf("Reconfiguring model %d …", idx+1)))
+			}
+
+			var targetEntry ModelEntry
+			if !isAdd {
+				targetEntry = chain[idx]
+			}
+
+			profile, err := AskModelProfile(targetEntry, chain)
 			if err != nil {
 				if err.Error() == "back" || err.Error() == "cancelled by user" {
 					continue
 				}
-				return nil, err
-			}
-			chain[idx] = entryFromProfile(profile)
-			if err := CollectKeyForEntry(chain[idx], collected); err != nil {
 				return nil, err
 			}
 
-		case choice == addIdx:
-			fmt.Println()
-			fmt.Println("  " + ui.Dim(fmt.Sprintf("Adding fallback %d …", len(chain))))
-			profile, err := AskModelProfile(ModelEntry{})
-			if err != nil {
-				if err.Error() == "back" || err.Error() == "cancelled by user" {
-					continue
-				}
-				return nil, err
-			}
 			entry := entryFromProfile(profile)
-			if err := CollectKeyForEntry(entry, collected); err != nil {
+
+			if err := CollectKeyForEntry(entry, collected, !isAdd); err != nil {
 				return nil, err
 			}
-			chain = append(chain, entry)
+
+			if isAdd {
+				chain = append(chain, entry)
+			} else {
+				chain[idx] = entry
+			}
 
 		case choice == removeIdx:
 			var removeChoices []string
@@ -440,7 +476,7 @@ func RunSetup() (*Config, error) {
 	if len(existingChain) > 0 {
 		existingPrimary = existingChain[0]
 	}
-	profile, err := AskModelProfile(existingPrimary)
+	profile, err := AskModelProfile(existingPrimary, existingChain)
 	if err != nil {
 		return nil, err
 	}
@@ -448,33 +484,9 @@ func RunSetup() (*Config, error) {
 
 	fmt.Println()
 	ui.Rule("STEP 2 — API key")
-	if primary.APIKeyEnv != "" && primary.APIKeyEnv != "OLLAMA_API_KEY" {
-		currentKeyValue := storedKeys[primary.APIKeyEnv]
-		if currentKeyValue != "" {
-			keep, err := ui.Confirm(fmt.Sprintf("Keep existing %s?", primary.APIKeyEnv), true)
-			if err != nil {
-				return nil, err
-			}
-			if !keep {
-				token, err := ui.Password(fmt.Sprintf("Enter Value for %s:", primary.APIKeyEnv), currentKeyValue)
-				if err != nil {
-					return nil, err
-				}
-				if token != "" {
-					collected[primary.APIKeyEnv] = token
-				}
-			}
-		} else {
-			token, err := ui.Password(fmt.Sprintf("Enter Value for %s:", primary.APIKeyEnv), "")
-			if err != nil {
-				return nil, err
-			}
-			if token != "" {
-				collected[primary.APIKeyEnv] = token
-			}
-		}
-	} else if primary.APIKeyEnv == "OLLAMA_API_KEY" {
-		collected[primary.APIKeyEnv] = "ollama"
+	// Using our new promptOverride logic.
+	if err := CollectKeyForEntry(primary, collected, true); err != nil {
+		return nil, err
 	}
 
 	fmt.Println()
@@ -546,7 +558,7 @@ func RunReconfigure() (*Config, error) {
 		ui.Rule("Missing API keys")
 		for _, e := range missing {
 			fmt.Printf("  %s  No stored key for %s (used by %s)\n", ui.Yellow("⚠"), e.APIKeyEnv, e.Model)
-			if err := CollectKeyForEntry(e, collected); err != nil {
+			if err := CollectKeyForEntry(e, collected, false); err != nil {
 				return nil, err
 			}
 		}
