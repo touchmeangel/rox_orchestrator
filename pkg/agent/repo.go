@@ -1,15 +1,14 @@
 package agent
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/touchmeangel/ignite_orchestrator/config"
 )
 
@@ -23,12 +22,9 @@ func (e *Engine) prepareRepoSpecs(githubURL, path string, force bool) (string, s
 
 	gitRoot := e.gitRepoRoot(path)
 	if gitRoot != "" {
-		remoteURL := e.gitRemoteURL(gitRoot)
-		var slug string
-		if remoteURL != "" {
+		slug := RepoSlug(gitRoot)
+		if remoteURL := e.gitRemoteURL(gitRoot); remoteURL != "" {
 			slug = RepoSlug(remoteURL)
-		} else {
-			slug = RepoSlug(gitRoot)
 		}
 		return gitRoot, slug, nil
 	}
@@ -40,61 +36,60 @@ func (e *Engine) cloneToCache(githubURL string, force bool) (string, error) {
 	slug := RepoSlug(githubURL)
 	repoPath := filepath.Join(config.IgniteHome, "repos", slug)
 
-	_, err := os.Stat(repoPath)
-	exists := err == nil
-
-	if exists && !force {
-		return repoPath, nil
-	}
-
-	if exists && force {
-		os.RemoveAll(repoPath)
+	if info, err := os.Stat(repoPath); err == nil && info.IsDir() {
+		if !force {
+			return repoPath, nil
+		}
+		if err := os.RemoveAll(repoPath); err != nil {
+			return "", fmt.Errorf("clearing cached checkout for re-clone: %w", err)
+		}
 	}
 
 	if err := os.MkdirAll(repoPath, 0o755); err != nil {
 		return "", fmt.Errorf("failed establishing local caching directory tree structure: %w", err)
 	}
 
-	cmd := exec.Command("git", "clone", "--depth", "1", githubURL, repoPath)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
+	_, err := git.PlainClone(repoPath, false, &git.CloneOptions{
+		URL:          githubURL,
+		Depth:        1,
+		SingleBranch: true,
+	})
+	if err != nil {
 		os.RemoveAll(repoPath)
-		return "", fmt.Errorf("git workspace checkout tracking error: %s", strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("git workspace checkout tracking error: %w", err)
 	}
 
 	return repoPath, nil
 }
 
+// gitRepoRoot walks up from path looking for a .git directory — what
+// `git rev-parse --show-toplevel` did before — with no git binary involved.
 func (e *Engine) gitRepoRoot(path string) string {
-	if _, err := exec.LookPath("git"); err != nil {
+	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{DetectDotGit: true})
+	if err != nil {
 		return ""
 	}
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	cmd.Dir = path
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-
-	if cmd.Run() == nil {
-		return strings.TrimSpace(stdout.String())
+	wt, err := repo.Worktree()
+	if err != nil {
+		return "" // bare repo or similar — no worktree to report a root for
 	}
-	return ""
+	return wt.Filesystem.Root()
 }
 
 func (e *Engine) gitRemoteURL(repoRoot string) string {
-	if _, err := exec.LookPath("git"); err != nil {
+	repo, err := git.PlainOpen(repoRoot)
+	if err != nil {
 		return ""
 	}
-	cmd := exec.Command("git", "remote", "get-url", "origin")
-	cmd.Dir = repoRoot
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-
-	if cmd.Run() == nil {
-		return strings.TrimSpace(stdout.String())
+	remote, err := repo.Remote("origin")
+	if err != nil {
+		return "" // no "origin" configured — not fatal, caller falls back to a path-based slug
 	}
-	return ""
+	urls := remote.Config().URLs
+	if len(urls) == 0 {
+		return ""
+	}
+	return urls[0]
 }
 
 func RepoSlug(source string) string {
