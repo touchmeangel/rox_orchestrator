@@ -35,7 +35,12 @@ func (c *Client) EnsureImage(ctx context.Context, ref string) error {
 }
 
 func (c *Client) PullImage(ctx context.Context, ref string) error {
-	rc, err := c.cli.ImagePull(ctx, ref, image.PullOptions{})
+	auth, err := registryAuth(ref)
+	if err != nil {
+		auth = ""
+	}
+
+	rc, err := c.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
 		return fmt.Errorf("pulling %s: %w", ref, err)
 	}
@@ -64,6 +69,10 @@ type RunSpec struct {
 var stdoutMu sync.Mutex
 
 func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
+	if err := c.EnsureImage(ctx, spec.Image); err != nil {
+		return -1, fmt.Errorf("ensuring image %s is available: %w", spec.Image, err)
+	}
+
 	_ = c.cli.ContainerRemove(ctx, spec.Name, container.RemoveOptions{Force: true})
 
 	mounts := make([]mount.Mount, 0, len(spec.Mounts))

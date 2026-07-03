@@ -118,7 +118,7 @@ func main() {
 	}
 
 	if doUpdate {
-		fmt.Printf("  %s\n", ui.Dim("Pulling latest core image framework execution model layer..."))
+		fmt.Printf("  %s\n", ui.Dim("Pulling latest agent image framework execution model layer..."))
 		if err := coreEngine.SyncImage(ctx); err != nil {
 			fmt.Printf("  %s Synchronization image update tracking error: %v\n", ui.Red("✗"), err)
 			os.Exit(1)

@@ -83,7 +83,15 @@ func (e *Engine) VerifyDaemonIsRunning(ctx context.Context) bool {
 }
 
 func (e *Engine) SyncImage(ctx context.Context) error {
-	return e.dockerCli.PullImage(ctx, CoordinatorImage)
+	err := e.dockerCli.PullImage(ctx, CoordinatorImage)
+	if err != nil {
+		return err
+	}
+	err = e.dockerCli.PullImage(ctx, WorkerImage)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
