@@ -68,21 +68,38 @@ type Engine struct {
 	dockerCli     *dockerx.Client
 	runner        Runner
 	activeWorkers atomic.Int32
+	currentPhase  atomic.Int32
 }
 
 func (e *Engine) ActiveWorkers() int32 {
 	return e.activeWorkers.Load()
 }
 
+const PHASE_INITIALIZING = 0
+const PHASE_READY = 1
+const PHASE_PREPARING_REPO_SPECS = 2
+const PHASE_RUNNING_COORDINATOR = 3
+const PHASE_LOADING_MISSIONS = 4
+const PHASE_WORKING = 5
+
+func (e *Engine) Phase() int32 {
+	return e.currentPhase.Load()
+}
+
+func (e *Engine) setPhase(status int32) {
+	e.currentPhase.Store(status)
+}
 func NewEngine() (*Engine, error) {
 	cli, err := dockerx.New()
 	if err != nil {
 		return nil, fmt.Errorf("initializing docker core client: %w", err)
 	}
-	return &Engine{
+	e := &Engine{
 		dockerCli: cli,
 		runner:    cli,
-	}, nil
+	}
+	e.setPhase(PHASE_READY)
+	return e, nil
 }
 
 func (e *Engine) Close() error {
@@ -115,6 +132,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("invalid exploration target path: %w", err)
 	}
 
+	e.setPhase(PHASE_PREPARING_REPO_SPECS)
 	repoPath, slug, err := e.prepareRepoSpecs(opts.GithubURL, absPath, opts.ForceFresh)
 	if err != nil {
 		return nil, err
@@ -165,6 +183,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		},
 	}
 
+	e.setPhase(PHASE_RUNNING_COORDINATOR)
 	code, err := e.runner.Run(ctx, spec)
 	if err != nil {
 		return nil, fmt.Errorf("core machine execution failure state: %w", err)
@@ -173,11 +192,13 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		return &Result{WorkspacePath: coordWorkPath, ResultsFile: resultsPath, ExitCode: int(code)}, nil
 	}
 
+	e.setPhase(PHASE_LOADING_MISSIONS)
 	missions, err := loadMissions(resultsPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading coordinator missions: %w", err)
 	}
 
+	e.setPhase(PHASE_WORKING)
 	workers := e.runWorkers(ctx, workerRunConfig{
 		repoPath:     repoPath,
 		baseWorkPath: baseWorkPath,

@@ -172,6 +172,25 @@ func main() {
 	fmt.Println()
 }
 
+func phaseToString(phase int32) string {
+	switch phase {
+	case agent.PHASE_INITIALIZING:
+		return "Initializing…"
+	case agent.PHASE_READY:
+		return "Ready…"
+	case agent.PHASE_PREPARING_REPO_SPECS:
+		return "Preparing repository specs…"
+	case agent.PHASE_RUNNING_COORDINATOR:
+		return "Running coordinator analysis…"
+	case agent.PHASE_LOADING_MISSIONS:
+		return "Loading target missions…"
+	case agent.PHASE_WORKING:
+		return "Starting workers…"
+	default:
+		return "Working…"
+	}
+}
+
 func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options) (*agent.Result, error) {
 	type outcome struct {
 		res *agent.Result
@@ -188,8 +207,7 @@ func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options)
 	defer ticker.Stop()
 
 	frame := 0
-	label := "Working…"
-	printLiveStatus(spinnerFrames[frame], label)
+	printLiveStatus(spinnerFrames[frame], "Initializing…")
 
 	for {
 		select {
@@ -198,15 +216,18 @@ func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options)
 			return out.res, out.err
 		case <-ticker.C:
 			frame = (frame + 1) % len(spinnerFrames)
+
+			var label string
 			if active := e.ActiveWorkers(); active > 0 {
 				plural := "s"
 				if active == 1 {
 					plural = ""
 				}
-				label = fmt.Sprintf("%d worker%s running", active, plural)
+				label = fmt.Sprintf("%d worker%s active", active, plural)
 			} else {
-				label = "Working…"
+				label = phaseToString(e.Phase())
 			}
+
 			printLiveStatus(spinnerFrames[frame], label)
 		}
 	}
