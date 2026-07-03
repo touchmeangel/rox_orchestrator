@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -124,6 +125,55 @@ func (e *Engine) SyncImage(ctx context.Context) error {
 	return nil
 }
 
+func syncWorkspaceFiles(repositoryPath string, workspacePath string) error {
+	return filepath.Walk(repositoryPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(repositoryPath, path)
+		if err != nil {
+			return err
+		}
+
+		dst := filepath.Join(workspacePath, rel)
+
+		if info.IsDir() {
+			return os.MkdirAll(dst, info.Mode())
+		}
+
+		return copyFile(path, dst, info.Mode())
+	})
+}
+
+func copyFile(src, dst string, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+
+	if err := out.Sync(); err != nil {
+		return err
+	}
+
+	return os.Chmod(dst, perm)
+}
+
 func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 	inspectPath := opts.InspectPath
 	if inspectPath == "" {
@@ -154,6 +204,10 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 	coordWorkPath := filepath.Join(baseWorkPath, "coordinator")
 	if err := os.MkdirAll(coordWorkPath, 0o755); err != nil {
 		return nil, fmt.Errorf("failed creating coordinator runtime directory: %w", err)
+	}
+	err = syncWorkspaceFiles(repoPath, coordWorkPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed syncing workspace files: %w", err)
 	}
 
 	debugPath := filepath.Join(config.IgniteHome, "debug.log")
@@ -257,8 +311,6 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
-	workerEnv := append(cfg.env, "IGNITE_HEADLESS=1")
-
 	for i, m := range cfg.missions {
 		wg.Add(1)
 		sem <- struct{}{}
@@ -272,6 +324,11 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 			missionWorkPath := filepath.Join(cfg.baseWorkPath, "missions", m.ID)
 			if err := os.MkdirAll(missionWorkPath, 0o755); err != nil {
 				results[i] = WorkerResult{MissionID: m.ID, Err: fmt.Errorf("preparing mission folder: %w", err)}
+				return
+			}
+			err := syncWorkspaceFiles(cfg.repoPath, missionWorkPath)
+			if err != nil {
+				results[i] = WorkerResult{MissionID: m.ID, Err: fmt.Errorf("failed syncing workspace files: %w", err)}
 				return
 			}
 
@@ -293,7 +350,7 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 					"--missions-file", "/app/coordinator_results.json",
 					"--mission-id", m.ID,
 				},
-				Env: workerEnv,
+				Env: cfg.env,
 				Mounts: []dockerx.Mount{
 					{Source: cfg.repoPath, Target: "/repo", ReadOnly: true},
 					{Source: missionWorkPath, Target: "/work", ReadOnly: false},
