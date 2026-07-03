@@ -58,9 +58,7 @@ type RunSpec struct {
 	Mounts     []Mount
 	ExtraHosts []string
 	LogFile    io.Writer
-	// LogPrefix is prepended to every streamed log line, e.g. "[mission-id] ".
-	// Useful when multiple containers run concurrently and share stdout.
-	LogPrefix string
+	LogPrefix  string
 }
 
 var stdoutMu sync.Mutex

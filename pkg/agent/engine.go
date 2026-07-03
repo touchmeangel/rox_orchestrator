@@ -47,9 +47,7 @@ type missionSummary struct {
 }
 
 type coordinatorOutput struct {
-	Coordinator struct {
-		Missions []missionSummary `json:"missions"`
-	} `json:"coordinator"`
+	Missions []missionSummary `json:"missions"`
 }
 
 func loadMissions(resultsPath string) ([]missionSummary, error) {
@@ -61,7 +59,7 @@ func loadMissions(resultsPath string) ([]missionSummary, error) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", resultsPath, err)
 	}
-	return out.Coordinator.Missions, nil
+	return out.Missions, nil
 }
 
 type Engine struct {
@@ -108,7 +106,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("failed creating unique runtime environment workspace: %w", err)
 	}
 
-	debugPath := filepath.Join(config.IgniteHome, "debug.log")
+	// debugPath := filepath.Join(config.IgniteHome, "debug.log")
 	configPath := config.ConfigPath()
 	resultsPath := filepath.Join(workPath, "coordinator_results.json")
 
@@ -118,31 +116,31 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	cmdArgs := []string{"--repo-path", "/repo", "--work-path", "/work", "--output", "/work/coordinator_results.json", "--debug", "/app/debug.log"}
-	if opts.SkipBuild {
-		cmdArgs = append(cmdArgs, "--skip-build")
-	}
+	// cmdArgs := []string{"--repo-path", "/repo", "--work-path", "/work", "--output", "/work/coordinator_results.json", "--debug", "/app/debug.log"}
+	// if opts.SkipBuild {
+	// 	cmdArgs = append(cmdArgs, "--skip-build")
+	// }
 
-	spec := dockerx.RunSpec{
-		Image: CoordinatorImage,
-		Name:  "ignite-coordinator",
-		Cmd:   cmdArgs,
-		Env:   env,
-		Mounts: []dockerx.Mount{
-			{Source: repoPath, Target: "/repo", ReadOnly: true},
-			{Source: workPath, Target: "/work", ReadOnly: false},
-			{Source: configPath, Target: "/app/config.json", ReadOnly: true},
-			{Source: debugPath, Target: "/app/debug.log", ReadOnly: false},
-		},
-	}
+	// spec := dockerx.RunSpec{
+	// 	Image: CoordinatorImage,
+	// 	Name:  "ignite-coordinator",
+	// 	Cmd:   cmdArgs,
+	// 	Env:   env,
+	// 	Mounts: []dockerx.Mount{
+	// 		{Source: repoPath, Target: "/repo", ReadOnly: true},
+	// 		{Source: workPath, Target: "/work", ReadOnly: false},
+	// 		{Source: configPath, Target: "/app/config.json", ReadOnly: true},
+	// 		{Source: debugPath, Target: "/app/debug.log", ReadOnly: false},
+	// 	},
+	// }
 
-	code, err := e.dockerCli.Run(ctx, spec)
-	if err != nil {
-		return nil, fmt.Errorf("core machine execution failure state: %w", err)
-	}
-	if code != 0 {
-		return &Result{WorkspacePath: workPath, ResultsFile: resultsPath, ExitCode: int(code)}, nil
-	}
+	// code, err := e.dockerCli.Run(ctx, spec)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("core machine execution failure state: %w", err)
+	// }
+	// if code != 0 {
+	// 	return &Result{WorkspacePath: workPath, ResultsFile: resultsPath, ExitCode: int(code)}, nil
+	// }
 
 	missions, err := loadMissions(resultsPath)
 	if err != nil {

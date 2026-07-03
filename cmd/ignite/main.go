@@ -15,6 +15,8 @@ import (
 	"github.com/touchmeangel/ignite_orchestrator/ui"
 )
 
+const WorkerConcurrency = 4
+
 func main() {
 	args := os.Args[1:]
 	var githubURL string
@@ -125,11 +127,12 @@ func main() {
 	}
 
 	opts := agent.Options{
-		GithubURL:   githubURL,
-		InspectPath: inspectPath,
-		ForceFresh:  forceReclone,
-		SkipBuild:   skipBuild,
-		Config:      cfg,
+		GithubURL:         githubURL,
+		InspectPath:       inspectPath,
+		ForceFresh:        forceReclone,
+		SkipBuild:         skipBuild,
+		Config:            cfg,
+		WorkerConcurrency: WorkerConcurrency,
 	}
 
 	if skipBuild {
@@ -152,7 +155,8 @@ func main() {
 	}
 
 	if res.ExitCode != 0 {
-		fmt.Printf("\n  %s %s\n", ui.Red("✗"), ui.Red(ui.Bold(fmt.Sprintf("Container execution failed (exit code %d).", res.ExitCode))))
+		fmt.Printf("\n  %s %s\n", ui.Red("✗"), ui.Red(ui.Bold("Container execution failed.")))
+		printWorkerFailures(res.Workers)
 		os.Exit(res.ExitCode)
 	}
 
@@ -163,6 +167,48 @@ func main() {
 
 	ui.Panel(completionText)
 	fmt.Println()
+}
+
+func printWorkerFailures(workers []agent.WorkerResult) {
+	if len(workers) == 0 {
+		fmt.Printf("  %s\n", ui.Dim("No worker results available — the coordinator itself may have failed before any missions were created."))
+		return
+	}
+
+	failed := 0
+	for _, w := range workers {
+		if w.Err == nil && w.ExitCode == 0 {
+			continue
+		}
+		failed++
+
+		label := w.MissionID
+		if w.Contract != "" || w.Vulnerability != "" {
+			label = fmt.Sprintf("%s  %s — %s", w.MissionID, w.Contract, w.Vulnerability)
+		}
+		fmt.Printf("\n  %s  %s\n", ui.Red("✗"), ui.Bold(label))
+
+		if w.Err != nil {
+			fmt.Printf("      %s %v\n", ui.Dim("engine error:"), w.Err)
+		}
+		if w.ExitCode != 0 {
+			fmt.Printf("      %s %d\n", ui.Dim("container exit code:"), w.ExitCode)
+		}
+		if w.ResultsFile != "" {
+			fmt.Printf("      %s %s\n", ui.Dim("results file:"), w.ResultsFile)
+		}
+	}
+
+	if failed == 0 {
+		fmt.Printf("  %s\n", ui.Dim("No individual worker failures recorded — check the coordinator's own output above."))
+		return
+	}
+
+	plural := "s"
+	if failed == 1 {
+		plural = ""
+	}
+	fmt.Printf("\n  %d of %d worker%s failed — see per-mission detail above.\n", failed, len(workers), plural)
 }
 
 func handleInteractivePathResolution(ctx context.Context, e *agent.Engine, originalPath string, opts agent.Options) (*agent.Result, error) {
