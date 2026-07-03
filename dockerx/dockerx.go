@@ -64,6 +64,7 @@ type RunSpec struct {
 	ExtraHosts []string
 	LogFile    io.Writer
 	LogPrefix  string
+	Quiet      bool
 }
 
 var stdoutMu sync.Mutex
@@ -105,7 +106,7 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 
 	logsCtx, cancelLogs := context.WithCancel(ctx)
 	defer cancelLogs()
-	go c.streamLogs(logsCtx, id, spec.LogFile, spec.LogPrefix)
+	go c.streamLogs(logsCtx, id, spec.LogFile, spec.LogPrefix, spec.Quiet)
 
 	statusCh, errCh := c.cli.ContainerWait(ctx, id, container.WaitConditionNotRunning)
 	select {
@@ -122,14 +123,14 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 	}
 }
 
-func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.Writer, prefix string) {
+func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.Writer, prefix string, quiet bool) {
 	out, err := c.cli.ContainerLogs(ctx, containerID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true})
 	if err != nil {
 		return
 	}
 	defer out.Close()
 
-	pw := &Writer{prefix: prefix}
+	pw := &Writer{prefix: prefix, quiet: quiet}
 	var mw io.Writer = pw
 	if logFile != nil {
 		mw = io.MultiWriter(pw, logFile)
@@ -145,6 +146,7 @@ func (c *Client) Ping(ctx context.Context) bool {
 type Writer struct {
 	buf    []byte
 	prefix string
+	quiet  bool
 }
 
 func (p *Writer) Write(data []byte) (int, error) {
@@ -158,9 +160,11 @@ func (p *Writer) Write(data []byte) (int, error) {
 		if len(line) > 0 && line[len(line)-1] == '\r' {
 			line = line[:len(line)-1]
 		}
-		stdoutMu.Lock()
-		fmt.Printf("%s%s\n", p.prefix, string(line))
-		stdoutMu.Unlock()
+		if !p.quiet {
+			stdoutMu.Lock()
+			fmt.Printf("%s%s\n", p.prefix, string(line))
+			stdoutMu.Unlock()
+		}
 		p.buf = p.buf[idx+1:]
 	}
 	return len(data), nil

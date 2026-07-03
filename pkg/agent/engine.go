@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/touchmeangel/ignite_orchestrator/config"
 	"github.com/touchmeangel/ignite_orchestrator/dockerx"
@@ -63,7 +65,13 @@ func loadMissions(resultsPath string) ([]missionSummary, error) {
 }
 
 type Engine struct {
-	dockerCli *dockerx.Client
+	dockerCli     *dockerx.Client
+	runner        Runner
+	activeWorkers atomic.Int32
+}
+
+func (e *Engine) ActiveWorkers() int32 {
+	return e.activeWorkers.Load()
 }
 
 func NewEngine() (*Engine, error) {
@@ -71,7 +79,10 @@ func NewEngine() (*Engine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initializing docker core client: %w", err)
 	}
-	return &Engine{dockerCli: cli}, nil
+	return &Engine{
+		dockerCli: cli,
+		runner:    cli,
+	}, nil
 }
 
 func (e *Engine) Close() error {
@@ -109,14 +120,21 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	workPath := filepath.Join(config.IgniteHome, "workspaces", slug)
-	if err := os.MkdirAll(workPath, 0o755); err != nil {
-		return nil, fmt.Errorf("failed creating unique runtime environment workspace: %w", err)
+	runID := fmt.Sprintf("%s-%d", slug, time.Now().UnixNano())
+	baseWorkPath := filepath.Join(config.IgniteHome, "workspaces", runID)
+
+	defer func() {
+		_ = os.RemoveAll(baseWorkPath)
+	}()
+
+	coordWorkPath := filepath.Join(baseWorkPath, "coordinator")
+	if err := os.MkdirAll(coordWorkPath, 0o755); err != nil {
+		return nil, fmt.Errorf("failed creating coordinator runtime directory: %w", err)
 	}
 
 	debugPath := filepath.Join(config.IgniteHome, "debug.log")
 	configPath := config.ConfigPath()
-	resultsPath := filepath.Join(workPath, "coordinator_results.json")
+	resultsPath := filepath.Join(coordWorkPath, "coordinator_results.json")
 
 	envMap := config.LoadEnvVars(opts.Config)
 	var env []string
@@ -124,30 +142,35 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	cmdArgs := []string{"--repo-path", "/repo", "--work-path", "/work", "--output", "/work/coordinator_results.json", "--debug", "/app/debug.log"}
+	cmdArgs := []string{
+		"--repo-path", "/repo",
+		"--work-path", "/work",
+		"--output", "/work/coordinator_results.json",
+		"--debug", "/app/debug.log",
+	}
 	if opts.SkipBuild {
 		cmdArgs = append(cmdArgs, "--skip-build")
 	}
 
 	spec := dockerx.RunSpec{
 		Image: CoordinatorImage,
-		Name:  "ignite-coordinator",
+		Name:  fmt.Sprintf("ignite-coordinator-%s", runID),
 		Cmd:   cmdArgs,
 		Env:   env,
 		Mounts: []dockerx.Mount{
 			{Source: repoPath, Target: "/repo", ReadOnly: true},
-			{Source: workPath, Target: "/work", ReadOnly: false},
+			{Source: coordWorkPath, Target: "/work", ReadOnly: false},
 			{Source: configPath, Target: "/app/config.json", ReadOnly: true},
 			{Source: debugPath, Target: "/app/debug.log", ReadOnly: false},
 		},
 	}
 
-	code, err := e.dockerCli.Run(ctx, spec)
+	code, err := e.runner.Run(ctx, spec)
 	if err != nil {
 		return nil, fmt.Errorf("core machine execution failure state: %w", err)
 	}
 	if code != 0 {
-		return &Result{WorkspacePath: workPath, ResultsFile: resultsPath, ExitCode: int(code)}, nil
+		return &Result{WorkspacePath: coordWorkPath, ResultsFile: resultsPath, ExitCode: int(code)}, nil
 	}
 
 	missions, err := loadMissions(resultsPath)
@@ -157,8 +180,8 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 
 	workers := e.runWorkers(ctx, workerRunConfig{
 		repoPath:     repoPath,
-		workPath:     workPath,
-		slug:         slug,
+		baseWorkPath: baseWorkPath,
+		runID:        runID,
 		configPath:   configPath,
 		missionsFile: resultsPath,
 		missions:     missions,
@@ -175,7 +198,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	return &Result{
-		WorkspacePath: workPath,
+		WorkspacePath: coordWorkPath,
 		ResultsFile:   resultsPath,
 		ExitCode:      overallExit,
 		Workers:       workers,
@@ -184,8 +207,8 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 
 type workerRunConfig struct {
 	repoPath     string
-	workPath     string
-	slug         string
+	baseWorkPath string
+	runID        string
 	configPath   string
 	missionsFile string
 	missions     []missionSummary
@@ -207,16 +230,26 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
+	workerEnv := append(cfg.env, "IGNITE_HEADLESS=1")
+
 	for i, m := range cfg.missions {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(i int, m missionSummary) {
+			e.activeWorkers.Add(1)
+			defer e.activeWorkers.Add(-1)
+
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			resultsFile := filepath.Join(cfg.workPath, fmt.Sprintf("worker_%s.json", m.ID))
+			missionWorkPath := filepath.Join(cfg.baseWorkPath, "missions", m.ID)
+			if err := os.MkdirAll(missionWorkPath, 0o755); err != nil {
+				results[i] = WorkerResult{MissionID: m.ID, Err: fmt.Errorf("preparing mission folder: %w", err)}
+				return
+			}
 
-			debugPath := filepath.Join(cfg.workPath, fmt.Sprintf("worker_%s_debug.log", m.ID))
+			resultsFile := filepath.Join(missionWorkPath, fmt.Sprintf("worker_%s.json", m.ID))
+			debugPath := filepath.Join(missionWorkPath, "agent.log")
 			if err := touchFile(debugPath); err != nil {
 				results[i] = WorkerResult{MissionID: m.ID, Err: fmt.Errorf("preparing worker debug log: %w", err)}
 				return
@@ -224,7 +257,7 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 
 			spec := dockerx.RunSpec{
 				Image: WorkerImage,
-				Name:  fmt.Sprintf("ignite-worker-%s-%s", cfg.slug, m.ID),
+				Name:  fmt.Sprintf("ignite-worker-%s-%s", cfg.runID, m.ID),
 				Cmd: []string{
 					"--repo-path", "/repo",
 					"--work-path", "/work",
@@ -233,18 +266,20 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 					"--missions-file", "/app/coordinator_results.json",
 					"--mission-id", m.ID,
 				},
-				Env: cfg.env,
+				Env: workerEnv,
 				Mounts: []dockerx.Mount{
 					{Source: cfg.repoPath, Target: "/repo", ReadOnly: true},
-					{Source: cfg.workPath, Target: "/work", ReadOnly: false},
+					{Source: missionWorkPath, Target: "/work", ReadOnly: false},
 					{Source: cfg.configPath, Target: "/app/config.json", ReadOnly: true},
 					{Source: debugPath, Target: "/app/debug.log", ReadOnly: false},
 					{Source: cfg.missionsFile, Target: "/app/coordinator_results.json", ReadOnly: true},
 				},
 				LogPrefix: fmt.Sprintf("[%s] ", m.ID),
+				Quiet:     true,
 			}
 
-			code, err := e.dockerCli.Run(ctx, spec)
+			code, err := e.runner.Run(ctx, spec)
+
 			results[i] = WorkerResult{
 				MissionID:     m.ID,
 				Contract:      m.Contract,

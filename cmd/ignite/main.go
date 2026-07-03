@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/touchmeangel/ignite_orchestrator/config"
 	"github.com/touchmeangel/ignite_orchestrator/pkg/agent"
@@ -16,6 +17,9 @@ import (
 )
 
 const WorkerConcurrency = 4
+
+// Matches the frame sequence already used by the original Python CLI's spinner.
+var spinnerFrames = []string{"·", "*", "✷", "✸", "✹", "✺", "✹", "✸", "✷", "*"}
 
 func main() {
 	args := os.Args[1:]
@@ -118,12 +122,12 @@ func main() {
 	}
 
 	if doUpdate {
-		fmt.Printf("  %s\n", ui.Dim("Pulling latest agent image framework execution model layer..."))
+		fmt.Printf("  %s\n", ui.Dim("Pulling latest coordinator and worker images..."))
 		if err := coreEngine.SyncImage(ctx); err != nil {
 			fmt.Printf("  %s Synchronization image update tracking error: %v\n", ui.Red("✗"), err)
 			os.Exit(1)
 		}
-		fmt.Printf("  %s  Image updated.\n", ui.Cyan("✔"))
+		fmt.Printf("  %s  Images updated.\n", ui.Cyan("✔"))
 	}
 
 	opts := agent.Options{
@@ -143,7 +147,7 @@ func main() {
 	fmt.Println("  " + ui.Dim("Running core engine analysis processing sequence..."))
 	fmt.Println()
 
-	res, err := coreEngine.Execute(ctx, opts)
+	res, err := runWithLiveStatus(ctx, coreEngine, opts)
 
 	if errors.Is(err, agent.ErrNoRepositoryDetected) {
 		res, err = handleInteractivePathResolution(ctx, coreEngine, inspectPath, opts)
@@ -167,6 +171,50 @@ func main() {
 
 	ui.Panel(completionText)
 	fmt.Println()
+}
+
+func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options) (*agent.Result, error) {
+	type outcome struct {
+		res *agent.Result
+		err error
+	}
+	done := make(chan outcome, 1)
+
+	go func() {
+		res, err := e.Execute(ctx, opts)
+		done <- outcome{res, err}
+	}()
+
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
+
+	frame := 0
+	label := "Working…"
+	printLiveStatus(spinnerFrames[frame], label)
+
+	for {
+		select {
+		case out := <-done:
+			fmt.Print("\r\033[K")
+			return out.res, out.err
+		case <-ticker.C:
+			frame = (frame + 1) % len(spinnerFrames)
+			if active := e.ActiveWorkers(); active > 0 {
+				plural := "s"
+				if active == 1 {
+					plural = ""
+				}
+				label = fmt.Sprintf("%d worker%s running", active, plural)
+			} else {
+				label = "Working…"
+			}
+			printLiveStatus(spinnerFrames[frame], label)
+		}
+	}
+}
+
+func printLiveStatus(frame, label string) {
+	fmt.Printf("\r  %s %s\033[K", ui.Cyan(frame), ui.Dim(label))
 }
 
 func printWorkerFailures(workers []agent.WorkerResult) {
@@ -232,7 +280,7 @@ func handleInteractivePathResolution(ctx context.Context, e *agent.Engine, origi
 	}
 
 	fmt.Printf("  %s  Configuring context targets execution mapping structural boundaries...\n", ui.Cyan("✔"))
-	return e.Execute(ctx, opts)
+	return runWithLiveStatus(ctx, e, opts)
 }
 
 func renderConfigMetadata(cfg *config.Config) {
