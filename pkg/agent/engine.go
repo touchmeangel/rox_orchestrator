@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -138,7 +140,11 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	runID := fmt.Sprintf("%s-%d", slug, time.Now().UnixNano())
+	randBytes := make([]byte, 4)
+	_, _ = rand.Read(randBytes)
+	randomPart := hex.EncodeToString(randBytes)
+
+	runID := fmt.Sprintf("%s-%d-%s", slug, time.Now().UnixNano(), randomPart)
 	baseWorkPath := filepath.Join(config.IgniteHome, "workspaces", runID)
 
 	defer func() {

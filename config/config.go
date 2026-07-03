@@ -227,6 +227,11 @@ func EnsureEnvironment() (string, error) {
 		return "", fmt.Errorf("creating base system configuration folder matrix: %w", err)
 	}
 
+	workspacesDir := filepath.Join(dir, "workspaces")
+	if err := os.MkdirAll(workspacesDir, 0755); err != nil {
+		return "", fmt.Errorf("creating workspaces directory: %w", err)
+	}
+
 	debugPath := filepath.Join(dir, "debug.log")
 	f, err := os.OpenFile(debugPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
