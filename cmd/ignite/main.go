@@ -18,7 +18,6 @@ import (
 
 const WorkerConcurrency = 4
 
-// Matches the frame sequence already used by the original Python CLI's spinner.
 var spinnerFrames = []string{"·", "*", "✷", "✸", "✹", "✺", "✹", "✸", "✷", "*"}
 
 func main() {
