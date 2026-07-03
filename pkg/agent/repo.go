@@ -51,7 +51,6 @@ func (e *Engine) cloneToCache(githubURL string, force bool) (string, error) {
 
 	_, err := git.PlainClone(repoPath, false, &git.CloneOptions{
 		URL:          githubURL,
-		Depth:        1,
 		SingleBranch: true,
 	})
 	if err != nil {
@@ -62,8 +61,6 @@ func (e *Engine) cloneToCache(githubURL string, force bool) (string, error) {
 	return repoPath, nil
 }
 
-// gitRepoRoot walks up from path looking for a .git directory — what
-// `git rev-parse --show-toplevel` did before — with no git binary involved.
 func (e *Engine) gitRepoRoot(path string) string {
 	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{DetectDotGit: true})
 	if err != nil {

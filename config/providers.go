@@ -21,11 +21,10 @@ type Provider struct {
 	AllModelsSupportsTemperature bool
 }
 
-var ProviderOrder = []string{"anthropic", "openai", "google", "openrouter", "naga", "ollama"}
+var ProviderOrder = []string{"anthropic", "openai", "google", "openrouter", "github", "naga", "ollama"}
 
 var Providers = map[string]Provider{
 	"anthropic": {
-		Key:   "anthropic",
 		Label: "Anthropic",
 		Models: []ModelSpec{
 			{ID: "claude-opus-4-8", SupportsReasoningEffort: true},
@@ -40,23 +39,20 @@ var Providers = map[string]Provider{
 		DefaultTemperature: 0.3,
 	},
 	"openai": {
-		Key:   "openai",
 		Label: "OpenAI",
 		Models: []ModelSpec{
 			{ID: "gpt-5.5", SupportsReasoningEffort: true},
 			{ID: "gpt-5", SupportsReasoningEffort: true},
-			{ID: "gpt-4.1", SupportsReasoningEffort: false, DefaultTemperature: 0.2, HasDefaultTemperature: true},
-			{ID: "gpt-4.1-mini", SupportsReasoningEffort: false, DefaultTemperature: 0.3, HasDefaultTemperature: true},
-			{ID: "gpt-4o", SupportsReasoningEffort: false, DefaultTemperature: 0.3, HasDefaultTemperature: true},
+			{ID: "gpt-4.1", DefaultTemperature: 0.2, HasDefaultTemperature: true},
+			{ID: "gpt-4.1-mini", DefaultTemperature: 0.3, HasDefaultTemperature: true},
+			{ID: "gpt-4o", DefaultTemperature: 0.3, HasDefaultTemperature: true},
 		},
 		EnvKey:             "OPENAI_API_KEY",
-		ProviderStr:        "openai",
 		EffortLevels:       []string{"none", "low", "medium", "high", "xhigh"},
 		DefaultEffort:      "medium",
 		DefaultTemperature: 0.3,
 	},
 	"google": {
-		Key:   "google",
 		Label: "Google",
 		Models: []ModelSpec{
 			{ID: "gemini-3.5-flash", SupportsReasoningEffort: true},
@@ -65,47 +61,79 @@ var Providers = map[string]Provider{
 			{ID: "gemini-2.5-flash", SupportsReasoningEffort: true},
 		},
 		EnvKey:             "GOOGLE_API_KEY",
-		ProviderStr:        "openai",
 		BaseURL:            "https://generativelanguage.googleapis.com/v1beta/openai/",
 		EffortLevels:       []string{"low", "medium", "high"},
 		DefaultEffort:      "medium",
 		DefaultTemperature: 0.3,
 	},
 	"openrouter": {
-		Key:                        "openrouter",
 		Label:                      "OpenRouter",
 		EnvKey:                     "OPENROUTER_API_KEY",
-		ProviderStr:                "openai",
 		BaseURL:                    "https://openrouter.ai/api/v1",
 		EffortLevels:               []string{"none", "minimal", "low", "medium", "high", "xhigh"},
 		DefaultEffort:              "medium",
 		DefaultTemperature:         0.3,
 		AllModelsSupportsReasoning: true,
 	},
+	"github": {
+		Label:              "GitHub Models",
+		EnvKey:             "GITHUB_API_KEY",
+		BaseURL:            "https://models.github.ai/inference",
+		EffortLevels:       []string{"none", "minimal", "low", "medium", "high", "xhigh"},
+		DefaultEffort:      "medium",
+		DefaultTemperature: 0.3,
+	},
 	"naga": {
-		Key:                          "naga",
 		Label:                        "Naga AI",
 		EnvKey:                       "NAGA_API_KEY",
-		ProviderStr:                  "openai",
 		BaseURL:                      "https://api.naga.ac/v1",
 		DefaultTemperature:           0.2,
 		AllModelsSupportsTemperature: true,
 	},
 	"ollama": {
-		Key:                "ollama",
 		Label:              "Ollama (local)",
 		EnvKey:             "OLLAMA_API_KEY",
-		ProviderStr:        "openai",
 		BaseURL:            "http://localhost:11434/v1",
 		DefaultTemperature: 0.3,
 	},
 }
 
-var TargetEnvKeys = []string{
-	"ANTHROPIC_API_KEY",
-	"OPENAI_API_KEY",
-	"GOOGLE_API_KEY",
-	"OLLAMA_API_KEY",
-	"OPENROUTER_API_KEY",
-	"NAGA_API_KEY",
+func init() {
+	for key, p := range Providers {
+		p.Key = key
+		if p.ProviderStr == "" {
+			p.ProviderStr = "openai"
+		}
+		Providers[key] = p
+	}
+
+	seen := map[string]bool{}
+	for _, key := range ProviderOrder {
+		if seen[key] {
+			panic("config: duplicate provider key in ProviderOrder: " + key)
+		}
+		seen[key] = true
+		if _, ok := Providers[key]; !ok {
+			panic("config: ProviderOrder references unknown provider: " + key)
+		}
+	}
+	for key := range Providers {
+		if !seen[key] {
+			panic("config: provider missing from ProviderOrder: " + key)
+		}
+	}
 }
+
+var TargetEnvKeys = func() []string {
+	seen := map[string]bool{}
+	keys := make([]string, 0, len(Providers))
+	for _, key := range ProviderOrder {
+		env := Providers[key].EnvKey
+		if env == "" || seen[env] {
+			continue
+		}
+		seen[env] = true
+		keys = append(keys, env)
+	}
+	return keys
+}()

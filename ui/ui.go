@@ -36,20 +36,6 @@ func Green(s string) string    { return wrap(green, s) }
 func Yellow(s string) string   { return wrap(yellow, s) }
 func BoldCyan(s string) string { return wrap(bold+cyan, s) }
 
-const Logo = `   __
-__(o )>
-\___)`
-
-func Banner() {
-	fmt.Println()
-	for _, line := range strings.Split(Logo, "\n") {
-		fmt.Println("  " + Cyan(line))
-	}
-	fmt.Println()
-	fmt.Println("  " + Bold("ignite") + Dim("  ·  EVM Smart Contract Security Research Agent"))
-	fmt.Println()
-}
-
 func Rule(label string) {
 	if label == "" {
 		fmt.Println(Dim(strings.Repeat("─", 60)))
@@ -58,14 +44,6 @@ func Rule(label string) {
 	fmt.Println(Dim(fmt.Sprintf("── %s %s", label, strings.Repeat("─", max(2, 56-utf8.RuneCountInString(label))))))
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// Panel draws a rounded box around body (which may be multi-line).
 func Panel(body string) {
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
 	width := 0
@@ -83,8 +61,6 @@ func Panel(body string) {
 	fmt.Println(Dim("  ╰" + strings.Repeat("─", width+pad*2) + "╯"))
 }
 
-// visibleWidth strips ANSI escapes before measuring — otherwise colored
-// strings throw off column alignment.
 func visibleWidth(s string) int {
 	inEscape := false
 	n := 0
@@ -104,7 +80,6 @@ func visibleWidth(s string) int {
 	return n
 }
 
-// Table renders a simple aligned table, roughly matching rich's box.SIMPLE.
 type Table struct {
 	Headers []string
 	Rows    [][]string
@@ -140,8 +115,6 @@ func (t Table) Print() {
 	}
 }
 
-// Spinner is a single-line spinner for long-running steps (docker pulls,
-// container runs) — stopped and cleared once real output starts streaming.
 type Spinner struct {
 	label string
 	stop  chan struct{}
@@ -176,40 +149,6 @@ func (s *Spinner) Start() {
 			}
 		}
 	}()
-}
-
-func WelcomeBanner(pipelineLabel string, primaryModel string, providerKey string, totalModels int) {
-	fmt.Println()
-	for _, line := range strings.Split(Logo, "\n") {
-		fmt.Println("  " + Cyan(line))
-	}
-	fmt.Println()
-
-	header := Bold("ignite") + Dim("  ·  EVM Smart Contract Security Research Agent") + "\n\n" +
-		"Welcome back — point me at a repo and I'll start digging.\n"
-
-	var modelsText string
-	if primaryModel != "" {
-		suffix := ""
-		if totalModels > 1 {
-			s := "s"
-			if totalModels == 2 {
-				s = ""
-			}
-			suffix = Dim(fmt.Sprintf("  +%d fallback%s", totalModels-1, s))
-		}
-
-		modelsText = fmt.Sprintf("  %s   %s   %s",
-			Cyan(strings.ToLower(pipelineLabel)),
-			primaryModel+suffix,
-			Dim("("+providerKey+")"),
-		)
-	}
-
-	footer := "\n" + Dim("github.com/touchmeangel/ignite_agent") + "\n" + Dim(time.Now().Format("2006-01-02 15:04:05"))
-
-	Panel(header + "\n" + modelsText + "\n" + footer)
-	fmt.Println()
 }
 
 func (s *Spinner) Stop() {
