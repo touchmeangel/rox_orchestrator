@@ -71,7 +71,7 @@ func ChainToConfig(chain []ModelEntry) *Config {
 	for i, e := range chain {
 		key := ReasoningTask
 		if i > 0 {
-			key = fmt.Sprintf("%s_fallback_%d", ReasoningTask, i)
+			key = fmt.Sprintf("%s_%d", ReasoningTask, i)
 		}
 		models[key] = e
 		keys = append(keys, key)

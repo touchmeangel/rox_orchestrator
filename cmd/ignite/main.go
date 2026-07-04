@@ -302,25 +302,28 @@ func handleInteractivePathResolution(ctx context.Context, e *agent.Engine, origi
 
 func renderConfigMetadata(cfg *config.Config) {
 	chain := config.ChainFromConfig(cfg)
-	if len(chain) == 0 {
+	numModels := len(chain)
+
+	if numModels == 0 {
 		return
 	}
-	primary := chain[0]
-	effortHint := ""
-	if primary.ReasoningEffort != "" {
-		effortHint = ", effort: " + primary.ReasoningEffort
-	} else if primary.Temperature != nil {
-		effortHint = fmt.Sprintf(", temp: %g", *primary.Temperature)
-	}
-	fallbackHint := ""
-	if len(chain) > 1 {
-		s := "s"
-		if len(chain) == 2 {
-			s = ""
+
+	var details string
+
+	if numModels == 1 {
+		m := chain[0]
+		effortHint := ""
+		if m.ReasoningEffort != "" {
+			effortHint = ", effort: " + m.ReasoningEffort
+		} else if m.Temperature != nil {
+			effortHint = fmt.Sprintf(", temp: %g", *m.Temperature)
 		}
-		fallbackHint = fmt.Sprintf(", +%d fallback%s", len(chain)-1, s)
+		details = fmt.Sprintf("(model: %s%s)", m.Model, effortHint)
+	} else {
+		details = fmt.Sprintf("(pool of %d models)", numModels)
 	}
-	fmt.Printf("  %s  Config  %s\n", ui.Cyan("✔"), ui.Dim(fmt.Sprintf("(model: %s%s%s)", primary.Model, effortHint, fallbackHint)))
+
+	fmt.Printf("  %s  Config  %s\n", ui.Cyan("✔"), ui.Dim(details))
 }
 
 func hasFlag(flags []string, matches ...string) bool {

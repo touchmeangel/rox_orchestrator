@@ -138,11 +138,11 @@ func AskModelProfile(existing ModelEntry, currentChain []ModelEntry) (Profile, e
 		prov := Providers[provKey]
 		sameProvider := existing.ProviderKey == provKey
 
-		var fallbackModelSuggestion string
+		var modelSuggestion string
 		if sameProvider {
-			fallbackModelSuggestion = existing.Model
+			modelSuggestion = existing.Model
 		} else {
-			fallbackModelSuggestion = lastModelForProvider(currentChain, provKey)
+			modelSuggestion = lastModelForProvider(currentChain, provKey)
 		}
 
 		var picked string
@@ -180,7 +180,7 @@ func AskModelProfile(existing ModelEntry, currentChain []ModelEntry) (Profile, e
 				continue
 			}
 			if picked == customModelLabel {
-				picked, err = ui.Text("Model tag (enter to reuse string)", fallbackModelSuggestion)
+				picked, err = ui.Text("Model tag (enter to reuse string)", modelSuggestion)
 				if err != nil {
 					return Profile{}, err
 				}
@@ -188,12 +188,12 @@ func AskModelProfile(existing ModelEntry, currentChain []ModelEntry) (Profile, e
 					continue
 				}
 				if picked == "" {
-					picked = fallbackModelSuggestion
+					picked = modelSuggestion
 				}
 			}
 
 		case len(prov.Models) == 0 || prov.AllModelsSupportsReasoning || prov.AllModelsSupportsTemperature:
-			picked, err = ui.Text("Model ID (enter to reuse string, type < to go back)", fallbackModelSuggestion)
+			picked, err = ui.Text("Model ID (enter to reuse string, type < to go back)", modelSuggestion)
 			if err != nil {
 				return Profile{}, err
 			}
@@ -201,7 +201,7 @@ func AskModelProfile(existing ModelEntry, currentChain []ModelEntry) (Profile, e
 				continue
 			}
 			if picked == "" {
-				picked = fallbackModelSuggestion
+				picked = modelSuggestion
 			}
 
 		default:
@@ -220,7 +220,7 @@ func AskModelProfile(existing ModelEntry, currentChain []ModelEntry) (Profile, e
 				continue
 			}
 			if picked == customModelLabel {
-				picked, err = ui.Text("Model signature string (enter to reuse string)", fallbackModelSuggestion)
+				picked, err = ui.Text("Model signature string (enter to reuse string)", modelSuggestion)
 				if err != nil {
 					return Profile{}, err
 				}
@@ -228,7 +228,7 @@ func AskModelProfile(existing ModelEntry, currentChain []ModelEntry) (Profile, e
 					continue
 				}
 				if picked == "" {
-					picked = fallbackModelSuggestion
+					picked = modelSuggestion
 				}
 			}
 		}
@@ -294,10 +294,7 @@ func entryParamsHint(e ModelEntry) string {
 func PrintChain(chain []ModelEntry) {
 	t := ui.Table{Headers: []string{"#", "Role", "Model", "Provider", "Key env", "Params"}}
 	for i, e := range chain {
-		role := "primary"
-		if i > 0 {
-			role = fmt.Sprintf("fallback %d", i)
-		}
+		role := fmt.Sprintf("model %d", i+1)
 		keyEnv := e.APIKeyEnv
 		if keyEnv == "" {
 			keyEnv = "—"
@@ -358,15 +355,12 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 
 		var choices []string
 		for i, e := range chain {
-			role := "primary"
-			if i > 0 {
-				role = fmt.Sprintf("fallback %d", i)
-			}
+			role := fmt.Sprintf("model %d", i+1)
 			choices = append(choices, fmt.Sprintf("Edit %d. %-24s [%s]", i+1, e.Model, role))
 		}
 
 		addIdx, removeIdx := -1, -1
-		choices = append(choices, "＋ Add fallback model")
+		choices = append(choices, "＋ Add model")
 		addIdx = len(choices) - 1
 
 		if len(chain) > 1 {
@@ -376,7 +370,7 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 		choices = append(choices, "✓ Save & continue")
 		doneIdx := len(choices) - 1
 
-		choice, err := ui.Select("Manage fallback chain:", choices, doneIdx)
+		choice, err := ui.Select("Manage models chain:", choices, doneIdx)
 		if err != nil {
 			return nil, err
 		}
@@ -388,7 +382,7 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 
 			if isAdd {
 				fmt.Println()
-				fmt.Println("  " + ui.Dim(fmt.Sprintf("Adding fallback %d …", len(chain))))
+				fmt.Println("  " + ui.Dim(fmt.Sprintf("Adding model %d …", len(chain)+1)))
 			} else {
 				fmt.Println()
 				fmt.Println("  " + ui.Dim(fmt.Sprintf("Reconfiguring model %d …", idx+1)))
@@ -422,10 +416,7 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 		case choice == removeIdx:
 			var removeChoices []string
 			for i, e := range chain {
-				role := "primary"
-				if i > 0 {
-					role = fmt.Sprintf("fallback %d", i)
-				}
+				role := fmt.Sprintf("model %d", i+1)
 				removeChoices = append(removeChoices, fmt.Sprintf("%s [%s]", e.Model, role))
 			}
 			removeChoices = append(removeChoices, "← Cancel")
@@ -489,8 +480,8 @@ func RunSetup() (*Config, error) {
 	}
 
 	fmt.Println()
-	ui.Rule("STEP 3 — Fallback chain")
-	fmt.Println("  " + ui.Dim("Add fallback/alloy models that will improve performance and will be tried if the primary fails."))
+	ui.Rule("STEP 3 — Model chain")
+	fmt.Println("  " + ui.Dim("Add models that will improve performance and will be tried if the primary fails."))
 	fmt.Println("  " + ui.Dim("Useful for rate limits, outages, or cost optimization. Optional."))
 	fmt.Println()
 
@@ -499,7 +490,7 @@ func RunSetup() (*Config, error) {
 		chain = append(chain, existingChain[1:]...)
 	}
 
-	manage, err := ui.Confirm(fmt.Sprintf("Manage fallback/alloy chain? (currently %d model(s))", len(chain)), len(chain) > 1)
+	manage, err := ui.Confirm(fmt.Sprintf("Manage model chain? (currently %d model(s))", len(chain)), len(chain) > 1)
 	if err != nil {
 		return nil, err
 	}
