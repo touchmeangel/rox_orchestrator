@@ -142,8 +142,6 @@ func main() {
 		fmt.Printf("  %s  %s\n", ui.Yellow("⚠"), ui.Dim("--skip-build: build phase will be skipped"))
 	}
 
-	ui.Rule("Analysis Pipeline Execution")
-	fmt.Println("  " + ui.Dim("Running core engine analysis processing sequence..."))
 	fmt.Println()
 
 	res, err := runWithLiveStatus(ctx, coreEngine, opts)
@@ -163,11 +161,11 @@ func main() {
 		os.Exit(res.ExitCode)
 	}
 
-	completionText := ui.BoldCyan("AUDIT ENGINE PIPELINE COMPLETE\n\n") +
+	completionText := ui.BoldCyan("AGENT PIPELINE COMPLETE\n\n") +
 		ui.Dim("Status:     ") + ui.Bold("Active / Success\n") +
 		ui.Dim("Artifacts:  ") + ui.Cyan(filepath.Base(res.ResultsFile)+"\n")
 
-	ui.Panel(completionText)
+	fmt.Println(ui.Panel(completionText))
 	fmt.Println()
 }
 
