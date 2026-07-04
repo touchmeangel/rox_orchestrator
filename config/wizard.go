@@ -484,14 +484,13 @@ func RunSetup() (*Config, error) {
 
 	fmt.Println()
 	ui.Rule("STEP 2 — API key")
-	// Using our new promptOverride logic.
 	if err := CollectKeyForEntry(primary, collected, true); err != nil {
 		return nil, err
 	}
 
 	fmt.Println()
 	ui.Rule("STEP 3 — Fallback chain")
-	fmt.Println("  " + ui.Dim("Add fallback models that will be tried if the primary fails."))
+	fmt.Println("  " + ui.Dim("Add fallback/alloy models that will improve performance and will be tried if the primary fails."))
 	fmt.Println("  " + ui.Dim("Useful for rate limits, outages, or cost optimization. Optional."))
 	fmt.Println()
 
