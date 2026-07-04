@@ -30,10 +30,9 @@ type Options struct {
 }
 
 type Result struct {
-	WorkspacePath string
-	ResultsFile   string
-	ExitCode      int
-	Workers       []WorkerResult
+	ExitCode    int
+	ResultsFile string
+	Workers     []WorkerResult
 }
 
 type WorkerResult struct {
@@ -67,6 +66,79 @@ func loadMissions(resultsPath string) ([]missionSummary, error) {
 	return out.Missions, nil
 }
 
+type aggregatedWorkerEntry struct {
+	MissionID     string          `json:"mission_id"`
+	Contract      string          `json:"contract"`
+	Vulnerability string          `json:"vulnerability"`
+	ExitCode      int64           `json:"exit_code"`
+	Success       bool            `json:"success"`
+	Error         string          `json:"error,omitempty"`
+	Results       json.RawMessage `json:"results,omitempty"`
+}
+
+type runSummary struct {
+	RunID       string                  `json:"run_id"`
+	GeneratedAt string                  `json:"generated_at"`
+	ExitCode    int                     `json:"exit_code"`
+	Error       string                  `json:"error,omitempty"`
+	Coordinator json.RawMessage         `json:"coordinator,omitempty"`
+	Workers     []aggregatedWorkerEntry `json:"workers"`
+}
+
+func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, workers []WorkerResult, runErr error) (string, error) {
+	summary := runSummary{
+		RunID:       runID,
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		ExitCode:    exitCode,
+	}
+	if runErr != nil {
+		summary.Error = runErr.Error()
+	}
+
+	if coordinatorResultsPath != "" {
+		if raw, err := os.ReadFile(coordinatorResultsPath); err == nil {
+			summary.Coordinator = json.RawMessage(raw)
+		}
+	}
+
+	for _, w := range workers {
+		entry := aggregatedWorkerEntry{
+			MissionID:     w.MissionID,
+			Contract:      w.Contract,
+			Vulnerability: w.Vulnerability,
+			ExitCode:      w.ExitCode,
+			Success:       w.Err == nil && w.ExitCode == 0,
+		}
+		if w.Err != nil {
+			entry.Error = w.Err.Error()
+		}
+		if w.ResultsFile != "" {
+			if raw, err := os.ReadFile(w.ResultsFile); err == nil {
+				entry.Results = json.RawMessage(raw)
+			} else if entry.Error == "" {
+				entry.Error = fmt.Sprintf("could not read worker results file: %v", err)
+			}
+		}
+		summary.Workers = append(summary.Workers, entry)
+	}
+
+	resultsDir := filepath.Join(config.IgniteHome, "results")
+	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+		return "", fmt.Errorf("creating results directory: %w", err)
+	}
+
+	outPath := filepath.Join(resultsDir, runID+".json")
+	data, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshaling run summary: %w", err)
+	}
+	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+		return "", fmt.Errorf("writing run summary: %w", err)
+	}
+
+	return outPath, nil
+}
+
 type Engine struct {
 	dockerCli     *dockerx.Client
 	runner        Runner
@@ -92,6 +164,7 @@ func (e *Engine) Phase() int32 {
 func (e *Engine) setPhase(status int32) {
 	e.currentPhase.Store(status)
 }
+
 func NewEngine() (*Engine, error) {
 	cli, err := dockerx.New()
 	if err != nil {
@@ -174,7 +247,7 @@ func copyFile(src, dst string, perm os.FileMode) error {
 	return os.Chmod(dst, perm|0o200)
 }
 
-func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
+func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, resultErr error) {
 	inspectPath := opts.InspectPath
 	if inspectPath == "" {
 		inspectPath = "."
@@ -197,7 +270,26 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 	runID := fmt.Sprintf("%s-%d-%s", slug, time.Now().UnixNano(), randomPart)
 	baseWorkPath := filepath.Join(config.IgniteHome, "workspaces", runID)
 
+	var (
+		coordinatorResultsPath string
+		workers                []WorkerResult
+	)
+
 	defer func() {
+		exitCode := 1
+		if result != nil {
+			exitCode = result.ExitCode
+		}
+
+		summaryPath, sumErr := writeRunSummary(runID, exitCode, coordinatorResultsPath, workers, resultErr)
+
+		if result == nil {
+			result = &Result{ExitCode: exitCode}
+		}
+		if sumErr == nil {
+			result.ResultsFile = summaryPath
+		}
+
 		_ = os.RemoveAll(baseWorkPath)
 	}()
 
@@ -205,14 +297,14 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 	if err := os.MkdirAll(coordWorkPath, 0o755); err != nil {
 		return nil, fmt.Errorf("failed creating coordinator runtime directory: %w", err)
 	}
-	err = syncWorkspaceFiles(repoPath, coordWorkPath)
-	if err != nil {
+	if err := syncWorkspaceFiles(repoPath, coordWorkPath); err != nil {
 		return nil, fmt.Errorf("failed syncing workspace files: %w", err)
 	}
 
 	debugPath := filepath.Join(config.IgniteHome, "debug.log")
 	configPath := config.ConfigPath()
 	resultsPath := filepath.Join(coordWorkPath, "coordinator_results.json")
+	coordinatorResultsPath = resultsPath
 
 	envMap := config.LoadEnvVars(opts.Config)
 	var env []string
@@ -249,7 +341,8 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("core machine execution failure state: %w", err)
 	}
 	if code != 0 {
-		return &Result{WorkspacePath: coordWorkPath, ResultsFile: resultsPath, ExitCode: int(code)}, nil
+		result = &Result{ExitCode: int(code)}
+		return result, nil
 	}
 
 	e.setPhase(PHASE_LOADING_MISSIONS)
@@ -259,7 +352,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	e.setPhase(PHASE_WORKING)
-	workers := e.runWorkers(ctx, workerRunConfig{
+	workers = e.runWorkers(ctx, workerRunConfig{
 		repoPath:     repoPath,
 		baseWorkPath: baseWorkPath,
 		runID:        runID,
@@ -278,12 +371,11 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (*Result, error) {
 		}
 	}
 
-	return &Result{
-		WorkspacePath: coordWorkPath,
-		ResultsFile:   resultsPath,
-		ExitCode:      overallExit,
-		Workers:       workers,
-	}, nil
+	result = &Result{
+		ExitCode: overallExit,
+		Workers:  workers,
+	}
+	return result, nil
 }
 
 type workerRunConfig struct {

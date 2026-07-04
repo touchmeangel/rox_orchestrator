@@ -165,8 +165,7 @@ func main() {
 
 	completionText := ui.BoldCyan("AUDIT ENGINE PIPELINE COMPLETE\n\n") +
 		ui.Dim("Status:     ") + ui.Bold("Active / Success\n") +
-		ui.Dim("Artifacts:  ") + ui.Cyan(filepath.Base(res.ResultsFile)+"\n") +
-		ui.Dim("Location:   ") + ui.Dim(res.WorkspacePath)
+		ui.Dim("Artifacts:  ") + ui.Cyan(filepath.Base(res.ResultsFile)+"\n")
 
 	ui.Panel(completionText)
 	fmt.Println()
