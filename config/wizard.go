@@ -499,7 +499,7 @@ func RunSetup() (*Config, error) {
 		chain = append(chain, existingChain[1:]...)
 	}
 
-	manage, err := ui.Confirm(fmt.Sprintf("Manage fallback chain? (currently %d model(s))", len(chain)), len(chain) > 1)
+	manage, err := ui.Confirm(fmt.Sprintf("Manage fallback/alloy chain? (currently %d model(s))", len(chain)), len(chain) > 1)
 	if err != nil {
 		return nil, err
 	}
