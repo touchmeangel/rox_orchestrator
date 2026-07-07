@@ -337,7 +337,6 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 			{Source: configPath, Target: "/app/config.json", ReadOnly: true},
 			{Source: debugPath, Target: "/app/debug.log", ReadOnly: false},
 		},
-		Runtime: config.ResolveRuntime(),
 	}
 
 	e.setPhase(PHASE_RUNNING_COORDINATOR)
@@ -457,7 +456,6 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 				},
 				LogPrefix: fmt.Sprintf("[%s] ", m.ID),
 				Quiet:     true,
-				Runtime:   config.ResolveRuntime(),
 			}
 
 			code, err := e.runner.Run(ctx, spec)

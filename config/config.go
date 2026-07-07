@@ -242,15 +242,6 @@ func EnsureEnvironment() (string, error) {
 	return debugPath, nil
 }
 
-func ResolveRuntime() string {
-	runtime := os.Getenv("IGNITE_RUNTIME")
-	if runtime == "" {
-		runtime = "runc"
-	}
-
-	return runtime
-}
-
 func ResolveAPIKey(e ModelEntry) string {
 	if e.APIKeyEnv != "" {
 		if val := os.Getenv(e.APIKeyEnv); val != "" {
