@@ -83,7 +83,7 @@ func main() {
 	defer stop()
 
 	if err = coreEngine.VerifyDaemonIsRunning(ctx); err != nil {
-		fmt.Println("  "+ui.Red("✗")+"  Docker ping failed: %s", err)
+		fmt.Printf("  %s  Docker ping failed: %v\n", ui.Red("✗"), err)
 		os.Exit(1)
 	}
 
