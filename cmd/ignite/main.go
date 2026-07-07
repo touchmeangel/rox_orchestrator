@@ -82,8 +82,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if !coreEngine.VerifyDaemonIsRunning(ctx) {
-		fmt.Println("  " + ui.Red("✗") + "  Docker is not running. Start Docker Desktop and retry.")
+	if err = coreEngine.VerifyDaemonIsRunning(ctx); err != nil {
+		fmt.Println("  "+ui.Red("✗")+"  Docker ping failed: %s", err)
 		os.Exit(1)
 	}
 

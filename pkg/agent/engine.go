@@ -186,7 +186,7 @@ func (e *Engine) Close() error {
 	return e.dockerCli.Close()
 }
 
-func (e *Engine) VerifyDaemonIsRunning(ctx context.Context) bool {
+func (e *Engine) VerifyDaemonIsRunning(ctx context.Context) error {
 	return e.dockerCli.Ping(ctx)
 }
 

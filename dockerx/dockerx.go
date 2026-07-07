@@ -140,9 +140,9 @@ func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.
 	_, _ = io.Copy(mw, out)
 }
 
-func (c *Client) Ping(ctx context.Context) bool {
+func (c *Client) Ping(ctx context.Context) error {
 	_, err := c.cli.Ping(ctx)
-	return err == nil
+	return err
 }
 
 type Writer struct {
