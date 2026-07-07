@@ -77,7 +77,7 @@ func main() {
 		fmt.Printf("  %s Failed initializing runtime client subsystem: %v\n", ui.Red("✗"), err)
 		os.Exit(1)
 	}
-	defer coreEngine.Close()
+	defer func() { _ = coreEngine.Close() }()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

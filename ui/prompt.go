@@ -27,9 +27,9 @@ func (d selectDelegate) Render(w io.Writer, m list.Model, index int, li list.Ite
 		return
 	}
 	if index == m.Index() {
-		fmt.Fprint(w, cyanStyle.Render("› "+string(item)))
+		_, _ = fmt.Fprint(w, cyanStyle.Render("› "+string(item)))
 	} else {
-		fmt.Fprint(w, dimStyle.Render("  "+string(item)))
+		_, _ = fmt.Fprint(w, dimStyle.Render("  "+string(item)))
 	}
 }
 

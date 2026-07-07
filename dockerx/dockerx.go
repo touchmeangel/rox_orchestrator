@@ -44,7 +44,7 @@ func (c *Client) PullImage(ctx context.Context, ref string) error {
 	if err != nil {
 		return fmt.Errorf("pulling %s: %w", ref, err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	_, _ = io.Copy(io.Discard, rc)
 	return nil
 }
@@ -62,6 +62,7 @@ type RunSpec struct {
 	Env        []string
 	Mounts     []Mount
 	ExtraHosts []string
+	Runtime    string
 	LogFile    io.Writer
 	LogPrefix  string
 	Quiet      bool
@@ -92,6 +93,7 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 		Mounts:     mounts,
 		ExtraHosts: spec.ExtraHosts,
 		AutoRemove: true,
+		Runtime:    spec.Runtime,
 	}
 
 	resp, err := c.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, spec.Name)
@@ -128,7 +130,7 @@ func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.
 	if err != nil {
 		return
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	pw := &Writer{prefix: prefix, quiet: quiet}
 	var mw io.Writer = pw

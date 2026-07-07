@@ -54,7 +54,7 @@ func (e *Engine) cloneToCache(githubURL string, force bool) (string, error) {
 		SingleBranch: true,
 	})
 	if err != nil {
-		os.RemoveAll(repoPath)
+		_ = os.RemoveAll(repoPath)
 		return "", fmt.Errorf("git workspace checkout tracking error: %w", err)
 	}
 

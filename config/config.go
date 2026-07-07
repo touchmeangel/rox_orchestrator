@@ -223,23 +223,32 @@ func EntryFromProfile(providerKey, providerStr, model, baseURL, envKey string, c
 
 func EnsureEnvironment() (string, error) {
 	dir := IgniteHome
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating base system configuration folder matrix: %w", err)
 	}
 
 	workspacesDir := filepath.Join(dir, "workspaces")
-	if err := os.MkdirAll(workspacesDir, 0755); err != nil {
+	if err := os.MkdirAll(workspacesDir, 0o755); err != nil {
 		return "", fmt.Errorf("creating workspaces directory: %w", err)
 	}
 
 	debugPath := filepath.Join(dir, "debug.log")
-	f, err := os.OpenFile(debugPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(debugPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return "", fmt.Errorf("initializing logging stream target file: %w", err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	return debugPath, nil
+}
+
+func ResolveRuntime() string {
+	runtime := os.Getenv("IGNITE_RUNTIME")
+	if runtime == "" {
+		runtime = "runc"
+	}
+
+	return runtime
 }
 
 func ResolveAPIKey(e ModelEntry) string {

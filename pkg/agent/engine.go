@@ -17,8 +17,10 @@ import (
 	"github.com/touchmeangel/ignite_orchestrator/dockerx"
 )
 
-const CoordinatorImage = "touchmeangel/ignite_coordinator:latest"
-const WorkerImage = "touchmeangel/ignite_worker:latest"
+const (
+	CoordinatorImage = "touchmeangel/ignite_coordinator:latest"
+	WorkerImage      = "touchmeangel/ignite_worker:latest"
+)
 
 type Options struct {
 	GithubURL         string
@@ -150,12 +152,14 @@ func (e *Engine) ActiveWorkers() int32 {
 	return e.activeWorkers.Load()
 }
 
-const PHASE_INITIALIZING = 0
-const PHASE_READY = 1
-const PHASE_PREPARING_REPO_SPECS = 2
-const PHASE_RUNNING_COORDINATOR = 3
-const PHASE_LOADING_MISSIONS = 4
-const PHASE_WORKING = 5
+const (
+	PHASE_INITIALIZING         = 0
+	PHASE_READY                = 1
+	PHASE_PREPARING_REPO_SPECS = 2
+	PHASE_RUNNING_COORDINATOR  = 3
+	PHASE_LOADING_MISSIONS     = 4
+	PHASE_WORKING              = 5
+)
 
 func (e *Engine) Phase() int32 {
 	return e.currentPhase.Load()
@@ -220,7 +224,7 @@ func syncWorkspaceFiles(repositoryPath string, workspacePath string) error {
 }
 
 func copyFile(src, dst string, perm os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
 
@@ -228,13 +232,13 @@ func copyFile(src, dst string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err := io.Copy(out, in); err != nil {
 		return err
@@ -333,6 +337,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 			{Source: configPath, Target: "/app/config.json", ReadOnly: true},
 			{Source: debugPath, Target: "/app/debug.log", ReadOnly: false},
 		},
+		Runtime: config.ResolveRuntime(),
 	}
 
 	e.setPhase(PHASE_RUNNING_COORDINATOR)
@@ -452,6 +457,7 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 				},
 				LogPrefix: fmt.Sprintf("[%s] ", m.ID),
 				Quiet:     true,
+				Runtime:   config.ResolveRuntime(),
 			}
 
 			code, err := e.runner.Run(ctx, spec)

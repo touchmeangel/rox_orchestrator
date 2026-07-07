@@ -13,8 +13,10 @@ type spinnerModel struct {
 	stopped bool
 }
 
-type setLabelMsg string
-type stopMsg struct{}
+type (
+	setLabelMsg string
+	stopMsg     struct{}
+)
 
 func newSpinnerModel(label string) spinnerModel {
 	s := spinner.New()

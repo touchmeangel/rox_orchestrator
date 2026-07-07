@@ -79,7 +79,7 @@ func fetchOllamaModels(baseURL string) []string {
 	if err != nil {
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var data struct {
 		Models []struct {
 			Name string `json:"name"`
@@ -359,9 +359,9 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 			choices = append(choices, fmt.Sprintf("Edit %d. %-24s [%s]", i+1, e.Model, role))
 		}
 
-		addIdx, removeIdx := -1, -1
+		removeIdx := -1
 		choices = append(choices, "＋ Add model")
-		addIdx = len(choices) - 1
+		addIdx := len(choices) - 1
 
 		if len(chain) > 1 {
 			choices = append(choices, "－ Remove a model")
