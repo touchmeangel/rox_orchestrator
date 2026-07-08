@@ -399,6 +399,11 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 	}
 
 	e.setPhase(PHASE_RUNNING_COORDINATOR)
+
+	if s, ok := e.live.(dockerx.Suspendable); ok {
+		s.Suspend()
+	}
+
 	code, err := e.runner.Run(ctx, spec)
 	if err != nil {
 		return nil, fmt.Errorf("core machine execution failure state: %w", err)
@@ -406,6 +411,10 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 	if code != 0 {
 		result = &Result{ExitCode: int(code)}
 		return result, nil
+	}
+
+	if s, ok := e.live.(dockerx.Suspendable); ok {
+		s.Resume()
 	}
 
 	e.setPhase(PHASE_LOADING_MISSIONS)
