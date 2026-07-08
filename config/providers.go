@@ -21,7 +21,7 @@ type Provider struct {
 	AllModelsSupportsTemperature bool
 }
 
-var ProviderOrder = []string{"anthropic", "openai", "google", "openrouter", "github", "naga", "ollama"}
+var ProviderOrder = []string{"anthropic", "openai", "google", "huggingface", "openrouter", "github", "naga", "ollama"}
 
 var Providers = map[string]Provider{
 	"anthropic": {
