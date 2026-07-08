@@ -125,7 +125,7 @@ func (m multiPullModel) View() string {
 	for _, img := range m.images {
 		switch img.state {
 		case pullDone:
-			fmt.Fprintf(&b, "  %s %s\n", greenStyle.Render("✔"), dimStyle.Render(img.name))
+			fmt.Fprintf(&b, "  %s %s\n", cyanStyle.Render("✔"), dimStyle.Render(img.name))
 		case pullFailed:
 			fmt.Fprintf(&b, "  %s %s  %s\n", redStyle.Render("✗"), img.name, dimStyle.Render(img.detail))
 		case pullActive:
