@@ -21,7 +21,7 @@ type Provider struct {
 	AllModelsSupportsTemperature bool
 }
 
-var ProviderOrder = []string{"anthropic", "openai", "google", "huggingface", "openrouter", "github", "naga", "ollama"}
+var ProviderOrder = []string{"anthropic", "openai", "google", "huggingface", "openrouter", "cerebras", "naga", "ollama"}
 
 var Providers = map[string]Provider{
 	"anthropic": {
@@ -82,11 +82,11 @@ var Providers = map[string]Provider{
 		DefaultEffort:              "medium",
 		AllModelsSupportsReasoning: true,
 	},
-	"github": {
-		Label:              "GitHub Models",
-		EnvKey:             "GITHUB_API_KEY",
-		BaseURL:            "https://models.github.ai/inference",
-		EffortLevels:       []string{"none", "minimal", "low", "medium", "high", "xhigh"},
+	"cerebras": {
+		Label:              "Cerebras",
+		EnvKey:             "CEREBRAS_API_KEY",
+		BaseURL:            "https://api.cerebras.ai/v1",
+		EffortLevels:       []string{"none", "low", "medium", "high"},
 		DefaultEffort:      "medium",
 		DefaultTemperature: 0.3,
 	},
