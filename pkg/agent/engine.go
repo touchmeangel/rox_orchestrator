@@ -143,11 +143,13 @@ func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, 
 }
 
 type Engine struct {
-	dockerCli     *dockerx.Client
-	runner        Runner
-	activeWorkers atomic.Int32
-	currentPhase  atomic.Int32
-	live          dockerx.LineWriter
+	dockerCli        *dockerx.Client
+	runner           Runner
+	activeWorkers    atomic.Int32
+	totalWorkers     atomic.Int32
+	completedWorkers atomic.Int32
+	currentPhase     atomic.Int32
+	live             dockerx.LineWriter
 }
 
 func (e *Engine) SetLive(l dockerx.LineWriter) {
@@ -156,6 +158,14 @@ func (e *Engine) SetLive(l dockerx.LineWriter) {
 
 func (e *Engine) ActiveWorkers() int32 {
 	return e.activeWorkers.Load()
+}
+
+func (e *Engine) QueuedWorkers() int32 {
+	queued := e.totalWorkers.Load() - e.activeWorkers.Load() - e.completedWorkers.Load()
+	if queued < 0 {
+		return 0
+	}
+	return queued
 }
 
 const (
@@ -466,6 +476,9 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 		return nil
 	}
 
+	e.totalWorkers.Store(int32(len(cfg.missions)))
+	e.completedWorkers.Store(0)
+
 	concurrency := cfg.concurrency
 	if concurrency > len(cfg.missions) {
 		concurrency = len(cfg.missions)
@@ -481,6 +494,7 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 		go func(i int, m missionSummary) {
 			e.activeWorkers.Add(1)
 			defer e.activeWorkers.Add(-1)
+			defer e.completedWorkers.Add(1)
 
 			defer wg.Done()
 			defer func() { <-sem }()

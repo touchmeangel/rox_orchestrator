@@ -257,12 +257,23 @@ func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options,
 			frame = (frame + 1) % len(spinnerFrames)
 
 			var label string
-			if active := e.ActiveWorkers(); active > 0 {
-				plural := "s"
+			active := e.ActiveWorkers()
+			queued := e.QueuedWorkers()
+
+			if active > 0 || queued > 0 {
+				activePlural := "s"
 				if active == 1 {
-					plural = ""
+					activePlural = ""
 				}
-				label = fmt.Sprintf("%d worker%s active", active, plural)
+				if queued > 0 {
+					queuedPlural := "s"
+					if queued == 1 {
+						queuedPlural = ""
+					}
+					label = fmt.Sprintf("%d worker%s active, %d queued worker%s", active, activePlural, queued, queuedPlural)
+				} else {
+					label = fmt.Sprintf("%d worker%s active", active, activePlural)
+				}
 			} else {
 				label = phaseToString(e.Phase())
 			}
