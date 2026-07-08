@@ -2,7 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"sync"
+
+	"golang.org/x/term"
 )
 
 type LiveRegion struct {
@@ -57,8 +60,9 @@ func (r *LiveRegion) redrawLocked() {
 		return
 	}
 
-	fmt.Print("\r" + r.status + "\033[K")
-	r.shown = r.status != ""
+	line := truncateToWidth(r.status, terminalWidth())
+	fmt.Print("\r" + line + "\033[K")
+	r.shown = line != ""
 }
 
 func (r *LiveRegion) Clear() {
@@ -69,4 +73,48 @@ func (r *LiveRegion) Clear() {
 	}
 	r.status = ""
 	r.shown = false
+}
+
+func terminalWidth() int {
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 1 {
+		return w - 1
+	}
+	return 79
+}
+
+func truncateToWidth(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return s
+	}
+
+	runes := []rune(s)
+	var b []rune
+	visible := 0
+	i := 0
+
+	for i < len(runes) {
+		if runes[i] == '\033' && i+1 < len(runes) && runes[i+1] == '[' {
+			start := i
+			i += 2
+			for i < len(runes) && runes[i] != 'm' {
+				i++
+			}
+			if i < len(runes) {
+				i++
+			}
+			b = append(b, runes[start:i]...)
+			continue
+		}
+
+		if visible >= maxWidth {
+			b = append(b, '…', '\033', '[', '0', 'm')
+			return string(b)
+		}
+
+		b = append(b, runes[i])
+		visible++
+		i++
+	}
+
+	return string(b)
 }
