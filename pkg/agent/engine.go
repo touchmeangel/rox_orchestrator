@@ -15,6 +15,7 @@ import (
 
 	"github.com/touchmeangel/ignite_orchestrator/config"
 	"github.com/touchmeangel/ignite_orchestrator/dockerx"
+	"github.com/touchmeangel/ignite_orchestrator/ui"
 )
 
 const (
@@ -191,15 +192,77 @@ func (e *Engine) VerifyDaemonIsRunning(ctx context.Context) error {
 }
 
 func (e *Engine) SyncImage(ctx context.Context) error {
-	err := e.dockerCli.PullImage(ctx, CoordinatorImage)
-	if err != nil {
+	if err := e.pullWithProgress(ctx, "Coordinator image", CoordinatorImage); err != nil {
 		return err
 	}
-	err = e.dockerCli.PullImage(ctx, WorkerImage)
-	if err != nil {
-		return err
+	return e.pullWithProgress(ctx, "Worker image", WorkerImage)
+}
+
+type layerProgress struct {
+	current, total int64
+	done           bool
+}
+
+func (e *Engine) pullWithProgress(ctx context.Context, label, ref string) error {
+	bar := ui.NewPullProgress(label + ": starting…")
+	bar.Start()
+	defer bar.Stop()
+
+	layers := map[string]*layerProgress{}
+	var mu sync.Mutex
+
+	onProgress := func(status, id string, current, total int64) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if id != "" {
+			lp, ok := layers[id]
+			if !ok {
+				lp = &layerProgress{}
+				layers[id] = lp
+			}
+			switch {
+			case status == "Pull complete" || status == "Already exists":
+				lp.done = true
+				if lp.total > 0 {
+					lp.current = lp.total
+				}
+			case total > 0:
+				lp.current, lp.total = current, total
+			}
+		}
+
+		var curSum, totalSum int64
+		complete := 0
+		for _, lp := range layers {
+			curSum += lp.current
+			totalSum += lp.total
+			if lp.done {
+				complete++
+			}
+		}
+
+		percent := 0.0
+		if totalSum > 0 {
+			percent = float64(curSum) / float64(totalSum)
+		}
+		bar.Update(fmt.Sprintf("%s — %d/%d layers, %s", label, complete, len(layers), humanBytes(curSum)), percent)
 	}
-	return nil
+
+	return e.dockerCli.PullImage(ctx, ref, onProgress)
+}
+
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%dB", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func syncWorkspaceFiles(repositoryPath string, workspacePath string) error {

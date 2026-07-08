@@ -3,6 +3,7 @@ package dockerx
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -27,25 +28,50 @@ func New() (*Client, error) {
 
 func (c *Client) Close() error { return c.cli.Close() }
 
-func (c *Client) EnsureImage(ctx context.Context, ref string) error {
+type PullProgressFunc func(status, id string, current, total int64)
+
+func (c *Client) EnsureImage(ctx context.Context, ref string, onProgress PullProgressFunc) error {
 	if _, _, err := c.cli.ImageInspectWithRaw(ctx, ref); err == nil {
 		return nil
 	}
-	return c.PullImage(ctx, ref)
+	return c.PullImage(ctx, ref, onProgress)
 }
 
-func (c *Client) PullImage(ctx context.Context, ref string) error {
+func (c *Client) PullImage(ctx context.Context, ref string, onProgress PullProgressFunc) error {
 	auth, err := registryAuth(ref)
 	if err != nil {
 		auth = ""
 	}
-
 	rc, err := c.cli.ImagePull(ctx, ref, image.PullOptions{RegistryAuth: auth})
 	if err != nil {
 		return fmt.Errorf("pulling %s: %w", ref, err)
 	}
 	defer func() { _ = rc.Close() }()
-	_, _ = io.Copy(io.Discard, rc)
+
+	dec := json.NewDecoder(rc)
+	for {
+		var msg struct {
+			Status         string `json:"status"`
+			ID             string `json:"id"`
+			ProgressDetail struct {
+				Current int64 `json:"current"`
+				Total   int64 `json:"total"`
+			} `json:"progressDetail"`
+			Error string `json:"error"`
+		}
+		if err := dec.Decode(&msg); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("reading pull progress for %s: %w", ref, err)
+		}
+		if msg.Error != "" {
+			return fmt.Errorf("pulling %s: %s", ref, msg.Error)
+		}
+		if onProgress != nil {
+			onProgress(msg.Status, msg.ID, msg.ProgressDetail.Current, msg.ProgressDetail.Total)
+		}
+	}
 	return nil
 }
 
@@ -71,45 +97,37 @@ type RunSpec struct {
 var stdoutMu sync.Mutex
 
 func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
-	if err := c.EnsureImage(ctx, spec.Image); err != nil {
+	if err := c.EnsureImage(ctx, spec.Image, nil); err != nil {
 		return -1, fmt.Errorf("ensuring image %s is available: %w", spec.Image, err)
 	}
-
 	_ = c.cli.ContainerRemove(ctx, spec.Name, container.RemoveOptions{Force: true})
-
 	mounts := make([]mount.Mount, 0, len(spec.Mounts))
 	for _, m := range spec.Mounts {
 		mounts = append(mounts, mount.Mount{Type: mount.TypeBind, Source: m.Source, Target: m.Target, ReadOnly: m.ReadOnly})
 	}
-
 	cfg := &container.Config{
 		Image: spec.Image,
 		Cmd:   spec.Cmd,
 		Env:   spec.Env,
 		Tty:   true,
 	}
-
 	hostCfg := &container.HostConfig{
 		Mounts:     mounts,
 		ExtraHosts: spec.ExtraHosts,
 		AutoRemove: true,
 		Runtime:    spec.Runtime,
 	}
-
 	resp, err := c.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, spec.Name)
 	if err != nil {
 		return -1, fmt.Errorf("creating container: %w", err)
 	}
 	id := resp.ID
-
 	if err := c.cli.ContainerStart(ctx, id, container.StartOptions{}); err != nil {
 		return -1, fmt.Errorf("starting container: %w", err)
 	}
-
 	logsCtx, cancelLogs := context.WithCancel(ctx)
 	defer cancelLogs()
 	go c.streamLogs(logsCtx, id, spec.LogFile, spec.LogPrefix, spec.Quiet)
-
 	statusCh, errCh := c.cli.ContainerWait(ctx, id, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
@@ -131,7 +149,6 @@ func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.
 		return
 	}
 	defer func() { _ = out.Close() }()
-
 	pw := &Writer{prefix: prefix, quiet: quiet}
 	var mw io.Writer = pw
 	if logFile != nil {
