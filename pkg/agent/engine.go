@@ -199,7 +199,7 @@ func (e *Engine) VerifyDaemonIsRunning(ctx context.Context) error {
 func (e *Engine) SyncImage(ctx context.Context) error {
 	refs := []string{CoordinatorImage, WorkerImage}
 
-	bar := ui.NewMultiPullProgress(refs)
+	bar := ui.NewMultiPullProgress("Pulling Ignite images", refs)
 	bar.Start()
 	defer bar.Stop()
 
@@ -244,36 +244,20 @@ func (e *Engine) pullOne(ctx context.Context, bar *ui.MultiPullProgress, index i
 		}
 
 		var curSum, totalSum int64
-		complete := 0
 		for _, lp := range layers {
 			curSum += lp.current
 			totalSum += lp.total
-			if lp.done {
-				complete++
-			}
 		}
 
-		percent := 0.0
+		phase := ui.ParsePhase(status)
 		if totalSum > 0 {
-			percent = float64(curSum) / float64(totalSum)
+			phase = ui.PhaseDownloading
 		}
-		bar.Update(index, percent, fmt.Sprintf("%d/%d layers · %s", complete, len(layers), humanBytes(curSum)))
+
+		bar.Update(index, phase, curSum, totalSum)
 	}
 
 	return e.dockerCli.PullImage(ctx, ref, onProgress)
-}
-
-func humanBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%dB", n)
-	}
-	div, exp := int64(unit), 0
-	for m := n / unit; m >= unit; m /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f%ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func syncWorkspaceFiles(repositoryPath string, workspacePath string) error {
