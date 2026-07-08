@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,13 +17,12 @@ import (
 	"github.com/touchmeangel/ignite_orchestrator/ui"
 )
 
-const WorkerConcurrency = 4
-
 var spinnerFrames = []string{"·", "*", "✷", "✸", "✹", "✺", "✹", "✸", "✷", "*"}
 
 func main() {
 	args := os.Args[1:]
 	var githubURL string
+	var concurrencyFlag string
 	var flags []string
 	var positional []string
 
@@ -31,6 +31,15 @@ func main() {
 		if a == "--github-url" || a == "-g" {
 			if i+1 < len(args) {
 				githubURL = args[i+1]
+				i++
+				continue
+			}
+			fmt.Printf("  %s  Missing value for flag token allocation option %s.\n", ui.Red("✗"), a)
+			os.Exit(1)
+		}
+		if a == "--concurrency" || a == "-c" {
+			if i+1 < len(args) {
+				concurrencyFlag = args[i+1]
 				i++
 				continue
 			}
@@ -135,7 +144,7 @@ func main() {
 		ForceFresh:        forceReclone,
 		SkipBuild:         skipBuild,
 		Config:            cfg,
-		WorkerConcurrency: WorkerConcurrency,
+		WorkerConcurrency: resolveWorkerConcurrency(concurrencyFlag),
 	}
 
 	if skipBuild {
@@ -169,6 +178,24 @@ func main() {
 
 	fmt.Println(ui.Panel(completionText))
 	fmt.Println()
+}
+
+const defaultWorkerConcurrency = 4
+
+func resolveWorkerConcurrency(flagValue string) int {
+	if flagValue != "" {
+		if n, err := strconv.Atoi(flagValue); err == nil && n > 0 {
+			return n
+		}
+		fmt.Printf("  %s  Invalid --concurrency value %q, falling back to default.\n", ui.Yellow("⚠"), flagValue)
+	}
+	if raw := os.Getenv("WORKER_CONCURRENCY"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+		fmt.Printf("  %s  Invalid WORKER_CONCURRENCY=%q, falling back to default.\n", ui.Yellow("⚠"), raw)
+	}
+	return defaultWorkerConcurrency
 }
 
 func phaseToString(phase int32) string {
