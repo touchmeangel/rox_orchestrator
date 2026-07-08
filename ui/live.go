@@ -1,0 +1,48 @@
+package ui
+
+import (
+	"fmt"
+	"sync"
+)
+
+type LiveRegion struct {
+	mu     sync.Mutex
+	status string
+	shown  bool
+}
+
+func NewLiveRegion() *LiveRegion {
+	return &LiveRegion{}
+}
+
+func (r *LiveRegion) SetStatus(status string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.status = status
+	r.redrawLocked()
+}
+
+func (r *LiveRegion) WriteLine(line string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.shown {
+		fmt.Print("\r\033[K")
+	}
+	fmt.Println(line)
+	r.redrawLocked()
+}
+
+func (r *LiveRegion) redrawLocked() {
+	fmt.Print("\r" + r.status + "\033[K")
+	r.shown = r.status != ""
+}
+
+func (r *LiveRegion) Clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.shown {
+		fmt.Print("\r\033[K")
+	}
+	r.status = ""
+	r.shown = false
+}

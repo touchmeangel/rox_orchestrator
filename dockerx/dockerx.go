@@ -75,6 +75,10 @@ func (c *Client) PullImage(ctx context.Context, ref string, onProgress PullProgr
 	return nil
 }
 
+type LineWriter interface {
+	WriteLine(line string)
+}
+
 type Mount struct {
 	Source   string
 	Target   string
@@ -92,6 +96,7 @@ type RunSpec struct {
 	LogFile    io.Writer
 	LogPrefix  string
 	Quiet      bool
+	Live       LineWriter
 }
 
 var stdoutMu sync.Mutex
@@ -127,7 +132,7 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 	}
 	logsCtx, cancelLogs := context.WithCancel(ctx)
 	defer cancelLogs()
-	go c.streamLogs(logsCtx, id, spec.LogFile, spec.LogPrefix, spec.Quiet)
+	go c.streamLogs(logsCtx, id, spec.LogFile, spec.LogPrefix, spec.Quiet, spec.Live)
 	statusCh, errCh := c.cli.ContainerWait(ctx, id, container.WaitConditionNotRunning)
 	select {
 	case err := <-errCh:
@@ -143,13 +148,13 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (int64, error) {
 	}
 }
 
-func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.Writer, prefix string, quiet bool) {
+func (c *Client) streamLogs(ctx context.Context, containerID string, logFile io.Writer, prefix string, quiet bool, live LineWriter) {
 	out, err := c.cli.ContainerLogs(ctx, containerID, container.LogsOptions{ShowStdout: true, ShowStderr: true, Follow: true})
 	if err != nil {
 		return
 	}
 	defer func() { _ = out.Close() }()
-	pw := &Writer{prefix: prefix, quiet: quiet}
+	pw := &Writer{prefix: prefix, quiet: quiet, live: live}
 	var mw io.Writer = pw
 	if logFile != nil {
 		mw = io.MultiWriter(pw, logFile)
@@ -166,6 +171,7 @@ type Writer struct {
 	buf    []byte
 	prefix string
 	quiet  bool
+	live   LineWriter
 }
 
 func (p *Writer) Write(data []byte) (int, error) {
@@ -180,9 +186,14 @@ func (p *Writer) Write(data []byte) (int, error) {
 			line = line[:len(line)-1]
 		}
 		if !p.quiet {
-			stdoutMu.Lock()
-			fmt.Printf("%s%s\n", p.prefix, string(line))
-			stdoutMu.Unlock()
+			text := p.prefix + string(line)
+			if p.live != nil {
+				p.live.WriteLine(text)
+			} else {
+				stdoutMu.Lock()
+				fmt.Println(text)
+				stdoutMu.Unlock()
+			}
 		}
 		p.buf = p.buf[idx+1:]
 	}

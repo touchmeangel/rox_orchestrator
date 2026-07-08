@@ -144,10 +144,11 @@ func main() {
 
 	fmt.Println()
 
-	res, err := runWithLiveStatus(ctx, coreEngine, opts)
+	region := ui.NewLiveRegion()
+	res, err := runWithLiveStatus(ctx, coreEngine, opts, region)
 
 	if errors.Is(err, agent.ErrNoRepositoryDetected) {
-		res, err = handleInteractivePathResolution(ctx, coreEngine, inspectPath, opts)
+		res, err = handleInteractivePathResolution(ctx, coreEngine, inspectPath, opts, region)
 	}
 
 	if err != nil {
@@ -178,9 +179,9 @@ func phaseToString(phase int32) string {
 	case agent.PHASE_PREPARING_REPO_SPECS:
 		return "Preparing repository specs…"
 	case agent.PHASE_RUNNING_COORDINATOR:
-		return "Running coordinator analysis…"
+		return "Running coordinator…"
 	case agent.PHASE_LOADING_MISSIONS:
-		return "Loading target missions…"
+		return "Loading missions…"
 	case agent.PHASE_WORKING:
 		return "Starting workers…"
 	default:
@@ -188,7 +189,7 @@ func phaseToString(phase int32) string {
 	}
 }
 
-func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options) (*agent.Result, error) {
+func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options, region *ui.LiveRegion) (*agent.Result, error) {
 	type outcome struct {
 		res *agent.Result
 		err error
@@ -204,12 +205,12 @@ func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options)
 	defer ticker.Stop()
 
 	frame := 0
-	printLiveStatus(spinnerFrames[frame], "Initializing…")
+	region.SetStatus(fmt.Sprintf("  %s %s", ui.Cyan(spinnerFrames[frame]), ui.Dim("Initializing…")))
 
 	for {
 		select {
 		case out := <-done:
-			fmt.Print("\r\033[K")
+			region.Clear()
 			return out.res, out.err
 		case <-ticker.C:
 			frame = (frame + 1) % len(spinnerFrames)
@@ -225,13 +226,9 @@ func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options)
 				label = phaseToString(e.Phase())
 			}
 
-			printLiveStatus(spinnerFrames[frame], label)
+			region.SetStatus(fmt.Sprintf("  %s %s", ui.Cyan(spinnerFrames[frame]), ui.Dim(label)))
 		}
 	}
-}
-
-func printLiveStatus(frame, label string) {
-	fmt.Printf("\r  %s %s\033[K", ui.Cyan(frame), ui.Dim(label))
 }
 
 func printWorkerFailures(workers []agent.WorkerResult) {
@@ -276,7 +273,7 @@ func printWorkerFailures(workers []agent.WorkerResult) {
 	fmt.Printf("\n  %d of %d worker%s failed — see per-mission detail above.\n", failed, len(workers), plural)
 }
 
-func handleInteractivePathResolution(ctx context.Context, e *agent.Engine, originalPath string, opts agent.Options) (*agent.Result, error) {
+func handleInteractivePathResolution(ctx context.Context, e *agent.Engine, originalPath string, opts agent.Options, region *ui.LiveRegion) (*agent.Result, error) {
 	fmt.Printf("  %s  No git repository found at %s\n", ui.Dim("⚠"), originalPath)
 
 	choices := []string{"Use this directory as source", "Enter a GitHub URL to clone"}
@@ -297,7 +294,7 @@ func handleInteractivePathResolution(ctx context.Context, e *agent.Engine, origi
 	}
 
 	fmt.Printf("  %s  Configuring context targets execution mapping structural boundaries...\n", ui.Cyan("✔"))
-	return runWithLiveStatus(ctx, e, opts)
+	return runWithLiveStatus(ctx, e, opts, region)
 }
 
 func renderConfigMetadata(cfg *config.Config) {

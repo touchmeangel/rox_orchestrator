@@ -147,6 +147,11 @@ type Engine struct {
 	runner        Runner
 	activeWorkers atomic.Int32
 	currentPhase  atomic.Int32
+	live          dockerx.LineWriter
+}
+
+func (e *Engine) SetLive(l dockerx.LineWriter) {
+	e.live = l
 }
 
 func (e *Engine) ActiveWorkers() int32 {
