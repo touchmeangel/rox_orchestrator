@@ -389,6 +389,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 		Name:  fmt.Sprintf("ignite-coordinator-%s", runID),
 		Cmd:   cmdArgs,
 		Env:   env,
+		Live:  e.live,
 		Mounts: []dockerx.Mount{
 			{Source: repoPath, Target: "/repo", ReadOnly: true},
 			{Source: coordWorkPath, Target: "/work", ReadOnly: false},
@@ -504,7 +505,8 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 					"--missions-file", "/app/coordinator_results.json",
 					"--mission-id", m.ID,
 				},
-				Env: cfg.env,
+				Env:  cfg.env,
+				Live: e.live,
 				Mounts: []dockerx.Mount{
 					{Source: cfg.repoPath, Target: "/repo", ReadOnly: true},
 					{Source: missionWorkPath, Target: "/work", ReadOnly: false},

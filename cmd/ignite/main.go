@@ -145,6 +145,7 @@ func main() {
 	fmt.Println()
 
 	region := ui.NewLiveRegion()
+	coreEngine.SetLive(region)
 	res, err := runWithLiveStatus(ctx, coreEngine, opts, region)
 
 	if errors.Is(err, agent.ErrNoRepositoryDetected) {
