@@ -17,7 +17,20 @@ import (
 	"github.com/touchmeangel/ignite_orchestrator/ui"
 )
 
-var spinnerFrames = []string{"·", "*", "✷", "✸", "✹", "✺", "✹", "✸", "✷", "*"}
+var spinnerFrames = []string{
+	"·",
+	"✦",
+	"✧",
+	"✲",
+	"✳",
+	"✴",
+	"❄",
+	"✴",
+	"✳",
+	"✲",
+	"✧",
+	"✦",
+}
 
 func main() {
 	args := os.Args[1:]
