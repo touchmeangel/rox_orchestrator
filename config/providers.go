@@ -66,13 +66,20 @@ var Providers = map[string]Provider{
 		DefaultEffort:      "medium",
 		DefaultTemperature: 0.3,
 	},
+	"huggingface": {
+		Label:                      "Hugging Face",
+		EnvKey:                     "HF_TOKEN",
+		BaseURL:                    "https://router.huggingface.co/v1",
+		EffortLevels:               []string{"none", "minimal", "low", "medium", "high", "xhigh"},
+		DefaultEffort:              "medium",
+		AllModelsSupportsReasoning: true,
+	},
 	"openrouter": {
 		Label:                      "OpenRouter",
 		EnvKey:                     "OPENROUTER_API_KEY",
 		BaseURL:                    "https://openrouter.ai/api/v1",
 		EffortLevels:               []string{"none", "minimal", "low", "medium", "high", "xhigh"},
 		DefaultEffort:              "medium",
-		DefaultTemperature:         0.3,
 		AllModelsSupportsReasoning: true,
 	},
 	"github": {
