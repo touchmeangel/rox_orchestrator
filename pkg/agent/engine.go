@@ -197,10 +197,20 @@ func (e *Engine) VerifyDaemonIsRunning(ctx context.Context) error {
 }
 
 func (e *Engine) SyncImage(ctx context.Context) error {
-	if err := e.pullWithProgress(ctx, "Coordinator image", CoordinatorImage); err != nil {
-		return err
+	refs := []string{CoordinatorImage, WorkerImage}
+
+	bar := ui.NewMultiPullProgress(refs)
+	bar.Start()
+	defer bar.Stop()
+
+	for i, ref := range refs {
+		if err := e.pullOne(ctx, bar, i, ref); err != nil {
+			bar.Fail(i, err)
+			return fmt.Errorf("pulling %s: %w", ref, err)
+		}
+		bar.Advance(i)
 	}
-	return e.pullWithProgress(ctx, "Worker image", WorkerImage)
+	return nil
 }
 
 type layerProgress struct {
@@ -208,11 +218,7 @@ type layerProgress struct {
 	done           bool
 }
 
-func (e *Engine) pullWithProgress(ctx context.Context, label, ref string) error {
-	bar := ui.NewPullProgress(label + ": starting…")
-	bar.Start()
-	defer bar.Stop()
-
+func (e *Engine) pullOne(ctx context.Context, bar *ui.MultiPullProgress, index int, ref string) error {
 	layers := map[string]*layerProgress{}
 	var mu sync.Mutex
 
@@ -251,7 +257,7 @@ func (e *Engine) pullWithProgress(ctx context.Context, label, ref string) error 
 		if totalSum > 0 {
 			percent = float64(curSum) / float64(totalSum)
 		}
-		bar.Update(fmt.Sprintf("%s — %d/%d layers, %s", label, complete, len(layers), humanBytes(curSum)), percent)
+		bar.Update(index, percent, fmt.Sprintf("%d/%d layers · %s", complete, len(layers), humanBytes(curSum)))
 	}
 
 	return e.dockerCli.PullImage(ctx, ref, onProgress)
