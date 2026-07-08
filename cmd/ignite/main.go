@@ -214,6 +214,11 @@ func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options,
 			region.Clear()
 			return out.res, out.err
 		case <-ticker.C:
+			if e.Phase() == agent.PHASE_RUNNING_COORDINATOR {
+				region.Clear()
+				continue
+			}
+
 			frame = (frame + 1) % len(spinnerFrames)
 
 			var label string
