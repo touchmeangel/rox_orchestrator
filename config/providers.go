@@ -94,7 +94,7 @@ var Providers = map[string]Provider{
 		Label:                        "Naga AI",
 		EnvKey:                       "NAGA_API_KEY",
 		BaseURL:                      "https://api.naga.ac/v1",
-		DefaultTemperature:           0.2,
+		DefaultTemperature:           0.3,
 		AllModelsSupportsTemperature: true,
 	},
 	"ollama": {
