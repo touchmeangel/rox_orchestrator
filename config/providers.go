@@ -70,7 +70,7 @@ var Providers = map[string]Provider{
 		Label:                      "Hugging Face",
 		EnvKey:                     "HF_TOKEN",
 		BaseURL:                    "https://router.huggingface.co/v1",
-		EffortLevels:               []string{"none", "minimal", "low", "medium", "high", "xhigh"},
+		EffortLevels:               []string{"low", "medium", "high"},
 		DefaultEffort:              "medium",
 		AllModelsSupportsReasoning: true,
 	},
