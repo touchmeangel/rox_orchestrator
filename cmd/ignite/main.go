@@ -183,15 +183,35 @@ func main() {
 		os.Exit(1)
 	}
 
-	if res.ExitCode != 0 {
-		fmt.Printf("\n  %s %s\n", ui.Red("✗"), ui.Red(ui.Bold("Container execution failed.")))
+	succeeded, failed := 0, 0
+	for _, w := range res.Workers {
+		if w.Err == nil && w.ExitCode == 0 {
+			succeeded++
+		} else {
+			failed++
+		}
+	}
+
+	if failed > 0 {
+		fmt.Printf("  %s %s\n", ui.Red("✗"), ui.Red(ui.Bold("Container execution failed.")))
 		printWorkerFailures(res.Workers)
-		os.Exit(res.ExitCode)
+	}
+
+	artifactsLabel := "N/A"
+	if res.ResultsFile != "" {
+		artifactsLabel = filepath.Base(res.ResultsFile)
 	}
 
 	completionText := ui.BoldCyan("AGENT PIPELINE COMPLETE\n\n") +
-		ui.Dim("Status:     ") + ui.Bold("Active / Success\n") +
-		ui.Dim("Artifacts:  ") + ui.Cyan(filepath.Base(res.ResultsFile)+"\n")
+		ui.Dim("Workers:    ") + ui.Bold(fmt.Sprintf("%d succeeded, %d failed\n", succeeded, failed)) +
+		ui.Dim("Artifacts:  ") + ui.Cyan(artifactsLabel+"\n")
+
+	fmt.Println(ui.Panel(completionText))
+	fmt.Println()
+
+	if res.ExitCode != 0 {
+		os.Exit(res.ExitCode)
+	}
 
 	fmt.Println(ui.Panel(completionText))
 	fmt.Println()
