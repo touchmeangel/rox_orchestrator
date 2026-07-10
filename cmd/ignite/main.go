@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -209,12 +210,11 @@ func main() {
 	fmt.Println(ui.Panel(completionText))
 	fmt.Println()
 
+	printModelUsage(res.UsageSummary)
+
 	if res.ExitCode != 0 {
 		os.Exit(res.ExitCode)
 	}
-
-	fmt.Println(ui.Panel(completionText))
-	fmt.Println()
 }
 
 const defaultWorkerConcurrency = 4
@@ -305,6 +305,43 @@ func runWithLiveStatus(ctx context.Context, e *agent.Engine, opts agent.Options,
 			region.SetStatus(fmt.Sprintf("  %s %s", ui.Cyan(spinnerFrames[frame]), ui.Dim(label)))
 		}
 	}
+}
+
+func printModelUsage(usage *agent.UsageSummary) {
+	if usage == nil || len(usage.ByModel) == 0 {
+		return
+	}
+
+	keys := make([]string, 0, len(usage.ByModel))
+	for k := range usage.ByModel {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	fmt.Printf("  %s\n", ui.Bold("Model usage:"))
+	for _, key := range keys {
+		e := usage.ByModel[key]
+		label := usageLabel(key, e.Model)
+		fmt.Printf(
+			"    %-40s %s  %s\n",
+			label,
+			ui.Dim(fmt.Sprintf("%5.1f%% calls", e.PctOfCalls)),
+			ui.Dim(fmt.Sprintf("%5.1f%% tokens", e.PctOfTokens)),
+		)
+	}
+	fmt.Println()
+}
+
+func usageLabel(key, model string) string {
+	parts := strings.SplitN(key, ":", 3)
+	if len(parts) < 2 {
+		return key
+	}
+	account := parts[1]
+	if account == "" || account == "null" {
+		return model
+	}
+	return fmt.Sprintf("%s (%s)", model, account)
 }
 
 func printWorkerFailures(workers []agent.WorkerResult) {

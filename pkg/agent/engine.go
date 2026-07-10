@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -33,9 +34,10 @@ type Options struct {
 }
 
 type Result struct {
-	ExitCode    int
-	ResultsFile string
-	Workers     []WorkerResult
+	ExitCode     int
+	ResultsFile  string
+	Workers      []WorkerResult
+	UsageSummary *UsageSummary
 }
 
 type WorkerResult struct {
@@ -86,9 +88,10 @@ type runSummary struct {
 	Error       string                  `json:"error,omitempty"`
 	Coordinator json.RawMessage         `json:"coordinator,omitempty"`
 	Workers     []aggregatedWorkerEntry `json:"workers"`
+	Usage       *UsageSummary           `json:"usage_summary,omitempty"`
 }
 
-func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, workers []WorkerResult, runErr error) (string, error) {
+func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, workers []WorkerResult, runErr error) (string, *UsageSummary, error) {
 	summary := runSummary{
 		RunID:       runID,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
@@ -98,9 +101,12 @@ func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, 
 		summary.Error = runErr.Error()
 	}
 
+	usage := &UsageSummary{ByModel: map[string]*ModelUsageEntry{}}
+
 	if coordinatorResultsPath != "" {
 		if raw, err := os.ReadFile(coordinatorResultsPath); err == nil {
 			summary.Coordinator = json.RawMessage(raw)
+			mergeUsageFrom(usage, raw)
 		}
 	}
 
@@ -118,6 +124,7 @@ func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, 
 		if w.ResultsFile != "" {
 			if raw, err := os.ReadFile(w.ResultsFile); err == nil {
 				entry.Results = json.RawMessage(raw)
+				mergeUsageFrom(usage, raw)
 			} else if entry.Error == "" {
 				entry.Error = fmt.Sprintf("could not read worker results file: %v", err)
 			}
@@ -125,21 +132,28 @@ func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, 
 		summary.Workers = append(summary.Workers, entry)
 	}
 
+	if len(usage.ByModel) > 0 {
+		finalizeUsage(usage)
+		summary.Usage = usage
+	} else {
+		usage = nil
+	}
+
 	resultsDir := filepath.Join(config.IgniteHome, "results")
 	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
-		return "", fmt.Errorf("creating results directory: %w", err)
+		return "", nil, fmt.Errorf("creating results directory: %w", err)
 	}
 
 	outPath := filepath.Join(resultsDir, runID+".json")
 	data, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("marshaling run summary: %w", err)
+		return "", nil, fmt.Errorf("marshaling run summary: %w", err)
 	}
 	if err := os.WriteFile(outPath, data, 0o644); err != nil {
-		return "", fmt.Errorf("writing run summary: %w", err)
+		return "", nil, fmt.Errorf("writing run summary: %w", err)
 	}
 
-	return outPath, nil
+	return outPath, usage, nil
 }
 
 type Engine struct {
@@ -353,13 +367,14 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 			exitCode = result.ExitCode
 		}
 
-		summaryPath, sumErr := writeRunSummary(runID, exitCode, coordinatorResultsPath, workers, resultErr)
+		summaryPath, usage, sumErr := writeRunSummary(runID, exitCode, coordinatorResultsPath, workers, resultErr)
 
 		if result == nil {
 			result = &Result{ExitCode: exitCode}
 		}
 		if sumErr == nil {
 			result.ResultsFile = summaryPath
+			result.UsageSummary = usage
 		}
 
 		_ = os.RemoveAll(baseWorkPath)
@@ -564,4 +579,61 @@ func touchFile(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+type ModelUsageEntry struct {
+	Model        string  `json:"model"`
+	Calls        int     `json:"calls"`
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	TotalTokens  int     `json:"total_tokens"`
+	PctOfCalls   float64 `json:"pct_of_calls"`
+	PctOfTokens  float64 `json:"pct_of_tokens"`
+}
+
+type UsageSummary struct {
+	TotalCalls  int                         `json:"total_calls"`
+	TotalTokens int                         `json:"total_tokens"`
+	ByModel     map[string]*ModelUsageEntry `json:"by_model"`
+}
+
+func mergeUsageFrom(dst *UsageSummary, raw json.RawMessage) {
+	if len(raw) == 0 {
+		return
+	}
+	var wrapper struct {
+		UsageSummary *UsageSummary `json:"usage_summary"`
+	}
+	if err := json.Unmarshal(raw, &wrapper); err != nil || wrapper.UsageSummary == nil {
+		return
+	}
+	for key, entry := range wrapper.UsageSummary.ByModel {
+		existing, ok := dst.ByModel[key]
+		if !ok {
+			existing = &ModelUsageEntry{Model: entry.Model}
+			dst.ByModel[key] = existing
+		}
+		existing.Calls += entry.Calls
+		existing.InputTokens += entry.InputTokens
+		existing.OutputTokens += entry.OutputTokens
+	}
+}
+
+func finalizeUsage(u *UsageSummary) {
+	totalCalls, totalTokens := 0, 0
+	for _, e := range u.ByModel {
+		e.TotalTokens = e.InputTokens + e.OutputTokens
+		totalCalls += e.Calls
+		totalTokens += e.TotalTokens
+	}
+	u.TotalCalls = totalCalls
+	u.TotalTokens = totalTokens
+	for _, e := range u.ByModel {
+		if totalCalls > 0 {
+			e.PctOfCalls = math.Round(100*float64(e.Calls)/float64(totalCalls)*100) / 100
+		}
+		if totalTokens > 0 {
+			e.PctOfTokens = math.Round(100*float64(e.TotalTokens)/float64(totalTokens)*100) / 100
+		}
+	}
 }
