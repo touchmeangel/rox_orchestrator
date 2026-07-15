@@ -24,10 +24,11 @@ func (r *LiveRegion) Suspend() {
 	defer r.mu.Unlock()
 
 	if r.shown {
-		fmt.Print("\r\033[K")
+		fmt.Print("\r\033[K\n")
 	}
 
 	r.suspended = true
+	r.shown = false
 }
 
 func (r *LiveRegion) Resume() {
