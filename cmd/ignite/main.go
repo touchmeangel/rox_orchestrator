@@ -153,7 +153,7 @@ func main() {
 			fmt.Printf("  %s Synchronization image update tracking error: %v\n", ui.Red("✗"), err)
 			os.Exit(1)
 		}
-		fmt.Printf("  %s  Images updated.\n", ui.Cyan("✔"))
+		fmt.Printf("  %s  Images updated.", ui.Cyan("✔"))
 	}
 
 	opts := agent.Options{
