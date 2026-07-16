@@ -36,6 +36,7 @@ type Options struct {
 type Result struct {
 	ExitCode     int
 	ResultsFile  string
+	ResultsDir   string
 	Workers      []WorkerResult
 	UsageSummary *UsageSummary
 }
@@ -47,6 +48,7 @@ type WorkerResult struct {
 	ExitCode      int64
 	ResultsFile   string
 	ResultsRaw    json.RawMessage
+	LogFile       string
 	ReadErrMsg    string
 	Err           error
 }
@@ -69,31 +71,51 @@ func parseMissions(data []byte) ([]missionSummary, error) {
 	return out.Missions, nil
 }
 
+type runPaths struct {
+	dir            string
+	workersLogDir  string
+	coordinatorLog string
+	resultFile     string
+}
+
+func newRunPaths(runID string) runPaths {
+	dir := filepath.Join(config.IgniteHome, "results", runID)
+	return runPaths{
+		dir:            dir,
+		workersLogDir:  filepath.Join(dir, "workers"),
+		coordinatorLog: filepath.Join(dir, "coordinator.log"),
+		resultFile:     filepath.Join(dir, "result.json"),
+	}
+}
+
 type aggregatedWorkerEntry struct {
 	MissionID     string          `json:"mission_id"`
 	Contract      string          `json:"contract"`
 	Vulnerability string          `json:"vulnerability"`
 	ExitCode      int64           `json:"exit_code"`
 	Success       bool            `json:"success"`
+	LogFile       string          `json:"log_file,omitempty"`
 	Error         string          `json:"error,omitempty"`
 	Results       json.RawMessage `json:"results,omitempty"`
 }
 
 type runSummary struct {
-	RunID       string                  `json:"run_id"`
-	GeneratedAt string                  `json:"generated_at"`
-	ExitCode    int                     `json:"exit_code"`
-	Error       string                  `json:"error,omitempty"`
-	Coordinator json.RawMessage         `json:"coordinator,omitempty"`
-	Workers     []aggregatedWorkerEntry `json:"workers"`
-	Usage       *UsageSummary           `json:"usage_summary,omitempty"`
+	RunID          string                  `json:"run_id"`
+	GeneratedAt    string                  `json:"generated_at"`
+	ExitCode       int                     `json:"exit_code"`
+	Error          string                  `json:"error,omitempty"`
+	CoordinatorLog string                  `json:"coordinator_log,omitempty"`
+	Coordinator    json.RawMessage         `json:"coordinator,omitempty"`
+	Workers        []aggregatedWorkerEntry `json:"workers"`
+	Usage          *UsageSummary           `json:"usage_summary,omitempty"`
 }
 
-func writeRunSummary(runID string, exitCode int, coordinatorRaw json.RawMessage, workers []WorkerResult, runErr error) (string, *UsageSummary, error) {
+func writeRunSummary(paths runPaths, runID string, exitCode int, coordinatorRaw json.RawMessage, workers []WorkerResult, runErr error) (string, *UsageSummary, error) {
 	summary := runSummary{
-		RunID:       runID,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		ExitCode:    exitCode,
+		RunID:          runID,
+		GeneratedAt:    time.Now().UTC().Format(time.RFC3339),
+		ExitCode:       exitCode,
+		CoordinatorLog: paths.coordinatorLog,
 	}
 	if runErr != nil {
 		summary.Error = runErr.Error()
@@ -113,6 +135,7 @@ func writeRunSummary(runID string, exitCode int, coordinatorRaw json.RawMessage,
 			Vulnerability: w.Vulnerability,
 			ExitCode:      w.ExitCode,
 			Success:       w.Err == nil && w.ExitCode == 0,
+			LogFile:       w.LogFile,
 		}
 		switch {
 		case w.Err != nil:
@@ -134,21 +157,19 @@ func writeRunSummary(runID string, exitCode int, coordinatorRaw json.RawMessage,
 		usage = nil
 	}
 
-	resultsDir := filepath.Join(config.IgniteHome, "results")
-	if err := os.MkdirAll(resultsDir, 0o755); err != nil {
+	if err := os.MkdirAll(paths.dir, 0o755); err != nil {
 		return "", nil, fmt.Errorf("creating results directory: %w", err)
 	}
 
-	outPath := filepath.Join(resultsDir, runID+".json")
 	data, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
 		return "", nil, fmt.Errorf("marshaling run summary: %w", err)
 	}
-	if err := os.WriteFile(outPath, data, 0o644); err != nil {
+	if err := os.WriteFile(paths.resultFile, data, 0o644); err != nil {
 		return "", nil, fmt.Errorf("writing run summary: %w", err)
 	}
 
-	return outPath, usage, nil
+	return paths.resultFile, usage, nil
 }
 
 type Engine struct {
@@ -350,6 +371,14 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 
 	runID := fmt.Sprintf("%s-%d-%s", slug, time.Now().UnixNano(), randomPart)
 	baseWorkPath := filepath.Join(config.IgniteHome, "workspaces", runID)
+	paths := newRunPaths(runID)
+
+	if err := os.MkdirAll(paths.workersLogDir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating results directory: %w", err)
+	}
+	if err := touchFile(paths.coordinatorLog); err != nil {
+		return nil, fmt.Errorf("preparing coordinator debug log: %w", err)
+	}
 
 	var (
 		coordinatorRaw json.RawMessage
@@ -362,7 +391,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 			exitCode = result.ExitCode
 		}
 
-		summaryPath, usage, sumErr := writeRunSummary(runID, exitCode, coordinatorRaw, workers, resultErr)
+		summaryPath, usage, sumErr := writeRunSummary(paths, runID, exitCode, coordinatorRaw, workers, resultErr)
 
 		if result == nil {
 			result = &Result{ExitCode: exitCode}
@@ -371,6 +400,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 			fmt.Fprintf(os.Stderr, "  ✗ failed to write run summary: %v\n", sumErr)
 		} else {
 			result.ResultsFile = summaryPath
+			result.ResultsDir = paths.dir
 			result.UsageSummary = usage
 		}
 
@@ -387,7 +417,6 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 		return nil, fmt.Errorf("failed syncing workspace files: %w", err)
 	}
 
-	debugPath := filepath.Join(config.IgniteHome, "debug.log")
 	configPath := config.ConfigPath()
 	resultsPath := filepath.Join(coordWorkPath, "coordinator_results.json")
 
@@ -417,7 +446,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 			{Source: repoPath, Target: "/repo", ReadOnly: true},
 			{Source: coordWorkPath, Target: "/work", ReadOnly: false},
 			{Source: configPath, Target: "/app/config.json", ReadOnly: true},
-			{Source: debugPath, Target: "/app/debug.log", ReadOnly: false},
+			{Source: paths.coordinatorLog, Target: "/app/debug.log", ReadOnly: false}, // CHANGED
 		},
 	}
 
@@ -463,14 +492,15 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 
 	e.setPhase(PHASE_WORKING)
 	workers = e.runWorkers(ctx, workerRunConfig{
-		repoPath:     repoPath,
-		baseWorkPath: baseWorkPath,
-		runID:        runID,
-		configPath:   configPath,
-		missionsFile: resultsPath,
-		missions:     missions,
-		env:          env,
-		concurrency:  opts.WorkerConcurrency,
+		repoPath:      repoPath,
+		baseWorkPath:  baseWorkPath,
+		runID:         runID,
+		configPath:    configPath,
+		missionsFile:  resultsPath,
+		missions:      missions,
+		env:           env,
+		concurrency:   opts.WorkerConcurrency,
+		workersLogDir: paths.workersLogDir,
 	})
 
 	overallExit := 0
@@ -489,14 +519,15 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 }
 
 type workerRunConfig struct {
-	repoPath     string
-	baseWorkPath string
-	runID        string
-	configPath   string
-	missionsFile string
-	missions     []missionSummary
-	env          []string
-	concurrency  int
+	repoPath      string
+	baseWorkPath  string
+	runID         string
+	configPath    string
+	missionsFile  string
+	missions      []missionSummary
+	env           []string
+	concurrency   int
+	workersLogDir string
 }
 
 func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerResult {
@@ -538,8 +569,8 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 			}
 
 			resultsFile := filepath.Join(missionWorkPath, fmt.Sprintf("worker_%s.json", m.ID))
-			debugPath := filepath.Join(missionWorkPath, "agent.log")
-			if err := touchFile(debugPath); err != nil {
+			workerLogFile := filepath.Join(cfg.workersLogDir, fmt.Sprintf("worker_%s.log", m.ID)) // CHANGED
+			if err := touchFile(workerLogFile); err != nil {                                      // CHANGED
 				results[i] = WorkerResult{MissionID: m.ID, Err: fmt.Errorf("preparing worker debug log: %w", err)}
 				_ = os.RemoveAll(missionWorkPath)
 				return
@@ -562,7 +593,7 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 					{Source: cfg.repoPath, Target: "/repo", ReadOnly: true},
 					{Source: missionWorkPath, Target: "/work", ReadOnly: false},
 					{Source: cfg.configPath, Target: "/app/config.json", ReadOnly: true},
-					{Source: debugPath, Target: "/app/debug.log", ReadOnly: false},
+					{Source: workerLogFile, Target: "/app/debug.log", ReadOnly: false}, // CHANGED
 					{Source: cfg.missionsFile, Target: "/app/coordinator_results.json", ReadOnly: true},
 				},
 				LogPrefix: fmt.Sprintf("[%s] ", m.ID),
@@ -590,6 +621,7 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 				ExitCode:      code,
 				ResultsFile:   resultsFile,
 				ResultsRaw:    raw,
+				LogFile:       workerLogFile,
 				ReadErrMsg:    readErrMsg,
 				Err:           runErr,
 			}
