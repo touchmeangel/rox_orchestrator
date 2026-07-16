@@ -46,6 +46,8 @@ type WorkerResult struct {
 	Vulnerability string
 	ExitCode      int64
 	ResultsFile   string
+	ResultsRaw    json.RawMessage
+	ReadErrMsg    string
 	Err           error
 }
 
@@ -59,14 +61,10 @@ type coordinatorOutput struct {
 	Missions []missionSummary `json:"missions"`
 }
 
-func loadMissions(resultsPath string) ([]missionSummary, error) {
-	data, err := os.ReadFile(resultsPath)
-	if err != nil {
-		return nil, fmt.Errorf("opening %s: %w", resultsPath, err)
-	}
+func parseMissions(data []byte) ([]missionSummary, error) {
 	var out coordinatorOutput
 	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, fmt.Errorf("parsing %s: %w", resultsPath, err)
+		return nil, fmt.Errorf("parsing coordinator results: %w", err)
 	}
 	return out.Missions, nil
 }
@@ -91,7 +89,7 @@ type runSummary struct {
 	Usage       *UsageSummary           `json:"usage_summary,omitempty"`
 }
 
-func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, workers []WorkerResult, runErr error) (string, *UsageSummary, error) {
+func writeRunSummary(runID string, exitCode int, coordinatorRaw json.RawMessage, workers []WorkerResult, runErr error) (string, *UsageSummary, error) {
 	summary := runSummary{
 		RunID:       runID,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
@@ -103,11 +101,9 @@ func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, 
 
 	usage := &UsageSummary{ByModel: map[string]*ModelUsageEntry{}}
 
-	if coordinatorResultsPath != "" {
-		if raw, err := os.ReadFile(coordinatorResultsPath); err == nil {
-			summary.Coordinator = json.RawMessage(raw)
-			mergeUsageFrom(usage, raw)
-		}
+	if len(coordinatorRaw) > 0 {
+		summary.Coordinator = coordinatorRaw
+		mergeUsageFrom(usage, coordinatorRaw)
 	}
 
 	for _, w := range workers {
@@ -118,16 +114,15 @@ func writeRunSummary(runID string, exitCode int, coordinatorResultsPath string, 
 			ExitCode:      w.ExitCode,
 			Success:       w.Err == nil && w.ExitCode == 0,
 		}
-		if w.Err != nil {
+		switch {
+		case w.Err != nil:
 			entry.Error = w.Err.Error()
+		case w.ReadErrMsg != "":
+			entry.Error = w.ReadErrMsg
 		}
-		if w.ResultsFile != "" {
-			if raw, err := os.ReadFile(w.ResultsFile); err == nil {
-				entry.Results = json.RawMessage(raw)
-				mergeUsageFrom(usage, raw)
-			} else if entry.Error == "" {
-				entry.Error = fmt.Sprintf("could not read worker results file: %v", err)
-			}
+		if len(w.ResultsRaw) > 0 {
+			entry.Results = w.ResultsRaw
+			mergeUsageFrom(usage, w.ResultsRaw)
 		}
 		summary.Workers = append(summary.Workers, entry)
 	}
@@ -357,8 +352,8 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 	baseWorkPath := filepath.Join(config.IgniteHome, "workspaces", runID)
 
 	var (
-		coordinatorResultsPath string
-		workers                []WorkerResult
+		coordinatorRaw json.RawMessage
+		workers        []WorkerResult
 	)
 
 	defer func() {
@@ -367,17 +362,21 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 			exitCode = result.ExitCode
 		}
 
-		summaryPath, usage, sumErr := writeRunSummary(runID, exitCode, coordinatorResultsPath, workers, resultErr)
+		summaryPath, usage, sumErr := writeRunSummary(runID, exitCode, coordinatorRaw, workers, resultErr)
 
 		if result == nil {
 			result = &Result{ExitCode: exitCode}
 		}
-		if sumErr == nil {
+		if sumErr != nil {
+			fmt.Fprintf(os.Stderr, "  ✗ failed to write run summary: %v\n", sumErr)
+		} else {
 			result.ResultsFile = summaryPath
 			result.UsageSummary = usage
 		}
 
-		_ = os.RemoveAll(baseWorkPath)
+		if rmErr := os.RemoveAll(baseWorkPath); rmErr != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ failed to clean up workspace %s: %v\n", baseWorkPath, rmErr)
+		}
 	}()
 
 	coordWorkPath := filepath.Join(baseWorkPath, "coordinator")
@@ -391,7 +390,6 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 	debugPath := filepath.Join(config.IgniteHome, "debug.log")
 	configPath := config.ConfigPath()
 	resultsPath := filepath.Join(coordWorkPath, "coordinator_results.json")
-	coordinatorResultsPath = resultsPath
 
 	envMap := config.LoadEnvVars(opts.Config)
 	var env []string
@@ -434,6 +432,9 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 		return nil, fmt.Errorf("core machine execution failure state: %w", err)
 	}
 	if code != 0 {
+		if rmErr := os.RemoveAll(coordWorkPath); rmErr != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ failed to clean up coordinator workspace %s: %v\n", coordWorkPath, rmErr)
+		}
 		result = &Result{ExitCode: int(code)}
 		return result, nil
 	}
@@ -443,9 +444,21 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 	}
 
 	e.setPhase(PHASE_LOADING_MISSIONS)
-	missions, err := loadMissions(resultsPath)
+	raw, err := os.ReadFile(resultsPath)
 	if err != nil {
+		_ = os.RemoveAll(coordWorkPath)
 		return nil, fmt.Errorf("reading coordinator missions: %w", err)
+	}
+	coordinatorRaw = json.RawMessage(raw)
+
+	missions, err := parseMissions(raw)
+	if err != nil {
+		_ = os.RemoveAll(coordWorkPath)
+		return nil, fmt.Errorf("reading coordinator missions: %w", err)
+	}
+
+	if rmErr := os.RemoveAll(coordWorkPath); rmErr != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ failed to clean up coordinator workspace %s: %v\n", coordWorkPath, rmErr)
 	}
 
 	e.setPhase(PHASE_WORKING)
@@ -510,7 +523,6 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 			e.activeWorkers.Add(1)
 			defer e.activeWorkers.Add(-1)
 			defer e.completedWorkers.Add(1)
-
 			defer wg.Done()
 			defer func() { <-sem }()
 
@@ -519,9 +531,9 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 				results[i] = WorkerResult{MissionID: m.ID, Err: fmt.Errorf("preparing mission folder: %w", err)}
 				return
 			}
-			err := syncWorkspaceFiles(cfg.repoPath, missionWorkPath)
-			if err != nil {
+			if err := syncWorkspaceFiles(cfg.repoPath, missionWorkPath); err != nil {
 				results[i] = WorkerResult{MissionID: m.ID, Err: fmt.Errorf("failed syncing workspace files: %w", err)}
+				_ = os.RemoveAll(missionWorkPath)
 				return
 			}
 
@@ -529,6 +541,7 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 			debugPath := filepath.Join(missionWorkPath, "agent.log")
 			if err := touchFile(debugPath); err != nil {
 				results[i] = WorkerResult{MissionID: m.ID, Err: fmt.Errorf("preparing worker debug log: %w", err)}
+				_ = os.RemoveAll(missionWorkPath)
 				return
 			}
 
@@ -556,7 +569,19 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 				Quiet:     true,
 			}
 
-			code, err := e.runner.Run(ctx, spec)
+			code, runErr := e.runner.Run(ctx, spec)
+
+			var raw json.RawMessage
+			var readErrMsg string
+			if data, rerr := os.ReadFile(resultsFile); rerr == nil {
+				raw = json.RawMessage(data)
+			} else if runErr == nil && code == 0 {
+				readErrMsg = fmt.Sprintf("could not read worker results file: %v", rerr)
+			}
+
+			if rmErr := os.RemoveAll(missionWorkPath); rmErr != nil {
+				fmt.Fprintf(os.Stderr, "  ⚠ failed to clean up mission workspace %s: %v\n", missionWorkPath, rmErr)
+			}
 
 			results[i] = WorkerResult{
 				MissionID:     m.ID,
@@ -564,7 +589,9 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 				Vulnerability: m.Vulnerability,
 				ExitCode:      code,
 				ResultsFile:   resultsFile,
-				Err:           err,
+				ResultsRaw:    raw,
+				ReadErrMsg:    readErrMsg,
+				Err:           runErr,
 			}
 		}(i, m)
 	}
