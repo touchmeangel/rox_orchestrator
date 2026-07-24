@@ -44,5 +44,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            touchmeangel/ignite_orchestrator:${{ steps.ver.outputs.version }}
-            touchmeangel/ignite_orchestrator:latest
+            touchmeangel/rox_orchestrator:${{ steps.ver.outputs.version }}
+            touchmeangel/rox_orchestrator:latest

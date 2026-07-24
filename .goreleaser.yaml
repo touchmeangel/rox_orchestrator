@@ -1,9 +1,9 @@
-project_name: ignite
+project_name: rox
 
 builds:
-  - id: ignite
-    main: ./cmd/ignite
-    binary: ignite
+  - id: rox
+    main: ./cmd/rox
+    binary: rox
     env:
       - CGO_ENABLED=0
     goos:
@@ -16,10 +16,10 @@ builds:
       - -s -w -X main.version={{.Version}}
 
 archives:
-  - id: ignite
-    ids: [ignite]
+  - id: rox
+    ids: [rox]
     formats: [tar.gz]
-    name_template: "ignite_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "rox_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"
@@ -34,4 +34,4 @@ changelog:
 release:
   github:
     owner: touchmeangel
-    name: ignite_orchestrator
+    name: rox_orchestrator

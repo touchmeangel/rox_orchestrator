@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/touchmeangel/ignite_orchestrator/config"
-	"github.com/touchmeangel/ignite_orchestrator/pkg/agent"
-	"github.com/touchmeangel/ignite_orchestrator/ui"
+	"github.com/touchmeangel/rox_orchestrator/config"
+	"github.com/touchmeangel/rox_orchestrator/pkg/agent"
+	"github.com/touchmeangel/rox_orchestrator/ui"
 )
 
 var spinnerFrames = []string{
@@ -448,10 +448,10 @@ func hasFlag(flags []string, matches ...string) bool {
 }
 
 func usage() {
-	text := ui.Bold("ignite") + " — EVM security research agent\n\n" +
-		"  " + ui.Cyan("ignite") + "                        " + ui.Dim("Run in current directory (auto-detects git)") + "\n" +
-		"  " + ui.Cyan("ignite /path/to/repo") + "          " + ui.Dim("Explicit local path") + "\n" +
-		"  " + ui.Cyan("ignite --github-url <url>") + "     " + ui.Dim("Clone and audit a public repo") + "\n\n" +
+	text := ui.Bold("rox") + " — EVM security research agent\n\n" +
+		"  " + ui.Cyan("rox") + "                        " + ui.Dim("Run in current directory (auto-detects git)") + "\n" +
+		"  " + ui.Cyan("rox /path/to/repo") + "          " + ui.Dim("Explicit local path") + "\n" +
+		"  " + ui.Cyan("rox --github-url <url>") + "     " + ui.Dim("Clone and audit a public repo") + "\n\n" +
 		"  " + ui.Dim("-r  --reconfigure") + "               Reconfigure model / API key\n" +
 		"  " + ui.Dim("-u  --update") + "                    Pull latest Docker image before running\n" +
 		"  " + ui.Dim("    --fresh") + "                     Force re-clone even if cache exists\n" +

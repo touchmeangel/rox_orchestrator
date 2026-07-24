@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/go-git/go-git/v5"
-	"github.com/touchmeangel/ignite_orchestrator/config"
+	"github.com/touchmeangel/rox_orchestrator/config"
 )
 
 var ErrNoRepositoryDetected = errors.New("no git repository discovered at specified destination context")
@@ -34,7 +34,7 @@ func (e *Engine) prepareRepoSpecs(githubURL, path string, force bool) (string, s
 
 func (e *Engine) cloneToCache(githubURL string, force bool) (string, error) {
 	slug := RepoSlug(githubURL)
-	repoPath := filepath.Join(config.IgniteHome, "repos", slug)
+	repoPath := filepath.Join(config.RoxHome, "repos", slug)
 
 	if info, err := os.Stat(repoPath); err == nil && info.IsDir() {
 		if !force {

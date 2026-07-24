@@ -16,14 +16,14 @@ RUN CGO_ENABLED=0 \
     go build \
       -trimpath \
       -ldflags="-s -w" \
-      -o /out/ignite \
-      ./cmd/ignite
+      -o /out/rox_orchestrator \
+      ./cmd/rox
 
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 
-COPY --from=builder /out/ignite /usr/local/bin/ignite
+COPY --from=builder /out/rox_orchestrator /usr/local/bin/rox_orchestrator
 
-ENTRYPOINT ["/usr/local/bin/ignite"]
+ENTRYPOINT ["/usr/local/bin/rox_orchestrator"]

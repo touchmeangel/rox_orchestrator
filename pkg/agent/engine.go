@@ -14,14 +14,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/touchmeangel/ignite_orchestrator/config"
-	"github.com/touchmeangel/ignite_orchestrator/dockerx"
-	"github.com/touchmeangel/ignite_orchestrator/ui"
+	"github.com/touchmeangel/rox_orchestrator/config"
+	"github.com/touchmeangel/rox_orchestrator/dockerx"
+	"github.com/touchmeangel/rox_orchestrator/ui"
 )
 
 const (
-	CoordinatorImage = "touchmeangel/ignite_coordinator:latest"
-	WorkerImage      = "touchmeangel/ignite_worker:latest"
+	Image = "touchmeangel/rox_agent:latest"
 )
 
 type Options struct {
@@ -79,7 +78,7 @@ type runPaths struct {
 }
 
 func newRunPaths(runID string) runPaths {
-	dir := filepath.Join(config.IgniteHome, "results", runID)
+	dir := filepath.Join(config.RoxHome, "results", runID)
 	return runPaths{
 		dir:            dir,
 		workersLogDir:  filepath.Join(dir, "workers"),
@@ -237,9 +236,9 @@ func (e *Engine) VerifyDaemonIsRunning(ctx context.Context) error {
 }
 
 func (e *Engine) SyncImage(ctx context.Context) error {
-	refs := []string{CoordinatorImage, WorkerImage}
+	refs := []string{Image}
 
-	bar := ui.NewMultiPullProgress("Pulling Ignite images", refs)
+	bar := ui.NewMultiPullProgress("Pulling RoX images", refs)
 	bar.Start()
 	defer bar.Stop()
 
@@ -370,7 +369,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 	randomPart := hex.EncodeToString(randBytes)
 
 	runID := fmt.Sprintf("%s-%d-%s", slug, time.Now().UnixNano(), randomPart)
-	baseWorkPath := filepath.Join(config.IgniteHome, "workspaces", runID)
+	baseWorkPath := filepath.Join(config.RoxHome, "workspaces", runID)
 	paths := newRunPaths(runID)
 
 	if err := os.MkdirAll(paths.workersLogDir, 0o755); err != nil {
@@ -437,8 +436,8 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 	}
 
 	spec := dockerx.RunSpec{
-		Image: CoordinatorImage,
-		Name:  fmt.Sprintf("ignite-coordinator-%s", runID),
+		Image: Image,
+		Name:  fmt.Sprintf("rox-coordinator-%s", runID),
 		Cmd:   cmdArgs,
 		Env:   env,
 		Live:  e.live,
@@ -577,8 +576,8 @@ func (e *Engine) runWorkers(ctx context.Context, cfg workerRunConfig) []WorkerRe
 			}
 
 			spec := dockerx.RunSpec{
-				Image: WorkerImage,
-				Name:  fmt.Sprintf("ignite-worker-%s-%s", cfg.runID, m.ID),
+				Image: Image,
+				Name:  fmt.Sprintf("rox-worker-%s-%s", cfg.runID, m.ID),
 				Cmd: []string{
 					"--repo-path", "/repo",
 					"--work-path", "/work",

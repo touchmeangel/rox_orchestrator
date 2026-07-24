@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"github.com/touchmeangel/ignite_orchestrator/dockerx"
+	"github.com/touchmeangel/rox_orchestrator/dockerx"
 )
 
 type Runner interface {

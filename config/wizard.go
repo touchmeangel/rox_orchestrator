@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/touchmeangel/ignite_orchestrator/ui"
+	"github.com/touchmeangel/rox_orchestrator/ui"
 )
 
 const (
@@ -445,7 +445,7 @@ func ManageChain(chain []ModelEntry, collected map[string]string) ([]ModelEntry,
 }
 
 func RunSetup() (*Config, error) {
-	if err := os.MkdirAll(IgniteHome, 0o755); err != nil {
+	if err := os.MkdirAll(RoxHome, 0o755); err != nil {
 		return nil, err
 	}
 
