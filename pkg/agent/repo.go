@@ -10,21 +10,17 @@ import (
 
 var ErrNoRepositoryDetected = errors.New("no git repository discovered at specified destination context")
 
-func (e *Engine) getRepoSpecs(githubURL, path string) string {
-	if githubURL != "" {
-		return RepoSlug(githubURL)
-	}
-
+func (e *Engine) getRepoSpecs(path string) string {
 	gitRoot := e.gitRepoRoot(path)
-	if gitRoot != "" {
-		slug := RepoSlug(gitRoot)
-		if remoteURL := e.gitRemoteURL(gitRoot); remoteURL != "" {
-			slug = RepoSlug(remoteURL)
-		}
-		return slug
+	if gitRoot == "" {
+		return "unknown"
 	}
 
-	return "unknown"
+	slug := RepoSlug(gitRoot)
+	if remoteURL := e.gitRemoteURL(gitRoot); remoteURL != "" {
+		slug = RepoSlug(remoteURL)
+	}
+	return slug
 }
 
 func (e *Engine) gitRepoRoot(path string) string {

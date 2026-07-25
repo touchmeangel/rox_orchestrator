@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 \
       -trimpath \
       -ldflags="-s -w" \
       -o /out/rox_orchestrator \
-      ./cmd/rox
+      ./cmd/listener
 
 
 FROM gcr.io/distroless/static-debian12:nonroot

@@ -2,7 +2,7 @@ project_name: rox
 
 builds:
   - id: rox
-    main: ./cmd/rox
+    main: ./cmd/listener
     binary: rox
     env:
       - CGO_ENABLED=0

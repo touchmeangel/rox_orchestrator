@@ -34,8 +34,7 @@ type containerResult struct {
 }
 
 type Options struct {
-	GithubURL   string
-	InspectPath string
+	RepoPath string
 }
 
 type Result struct {
@@ -197,17 +196,13 @@ func (e *Engine) Close() error {
 }
 
 func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, resultErr error) {
-	inspectPath := opts.InspectPath
-	if inspectPath == "" {
-		inspectPath = "."
-	}
-	absPath, err := filepath.Abs(inspectPath)
+	absPath, err := filepath.Abs(opts.RepoPath)
 	if err != nil {
 		return nil, fmt.Errorf("invalid exploration target path: %w", err)
 	}
 
 	e.setPhase(PHASE_PREPARING_REPO_SPECS)
-	slug := e.getRepoSpecs(opts.GithubURL, absPath)
+	slug := e.getRepoSpecs(absPath)
 
 	randBytes := make([]byte, 4)
 	_, _ = rand.Read(randBytes)
