@@ -36,7 +36,6 @@ type containerResult struct {
 type Options struct {
 	GithubURL   string
 	InspectPath string
-	ForceFresh  bool
 }
 
 type Result struct {
