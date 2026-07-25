@@ -39,10 +39,6 @@ type Client struct {
 	queueName  string
 	replyQueue string
 
-	// amqp091-go channels are not safe for concurrent Publish calls from
-	// multiple goroutines. Submit() is meant to be called concurrently —
-	// that's the whole point of correlation IDs — so the Publish itself
-	// needs to be serialized even though the reply-side demuxing doesn't.
 	publishMu sync.Mutex
 
 	mu      sync.Mutex
