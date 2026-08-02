@@ -2,18 +2,19 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/touchmeangel/rox_orchestrator/config"
-	"github.com/touchmeangel/rox_orchestrator/pkg/agent"
-	"github.com/touchmeangel/rox_orchestrator/rabbitworker"
-	"github.com/touchmeangel/rox_orchestrator/tasks"
+	"github.com/touchmeangel/rox_orchestrator/internal/agent"
+	"github.com/touchmeangel/rox_orchestrator/internal/rpc"
+	taskpb "github.com/touchmeangel/rox_proto/rox/task/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 func main() {
@@ -24,34 +25,56 @@ func main() {
 		return
 	}
 
-	engine, err := agent.NewEngine(cfg.ListenerAMQPURL, cfg.ListenerQueueName)
+	engine, err := agent.NewEngine(cfg.ServerAddr)
 	if err != nil {
 		logger.Error("client init failed", "error", err)
 		return
 	}
 	defer func() { _ = engine.Close() }()
 
-	w := rabbitworker.New(
-		cfg.AMQPURL,
-		cfg.QueueName,
-		rabbitworker.WithLogger(logger),
-		rabbitworker.WithPrefetch(cfg.MaxConcurrentTasks),
+	lis, err := net.Listen("tcp", cfg.ListenAddr)
+	if err != nil {
+		logger.Error("listen failed", "addr", cfg.ListenAddr, "error", err)
+		return
+	}
+
+	grpcServer := grpc.NewServer(
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    30 * time.Second,
+			Timeout: 10 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
 	)
 
-	w.On("run", func(ctx context.Context, data json.RawMessage) error {
-		return tasks.Run(ctx, engine, data)
-	})
+	srv := rpc.NewServer(engine, logger, cfg.ConcurrentWorkers, cfg.ConcurrentWorkers)
+	taskpb.RegisterTaskServiceServer(grpcServer, srv)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := w.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		logger.Error("worker exited with error", "error", err)
-	}
+	go func() {
+		logger.Info("ready to accept tasks", "addr", cfg.ListenAddr, "max_concurrent", cfg.ConcurrentWorkers)
+		if err := grpcServer.Serve(lis); err != nil {
+			logger.Error("grpc server exited with error", "error", err)
+		}
+	}()
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := w.Close(shutdownCtx); err != nil {
-		logger.Error("shutdown error", "error", err)
+	<-ctx.Done()
+	logger.Info("shutdown signal received, draining in-flight tasks")
+
+	done := make(chan struct{})
+	go func() {
+		grpcServer.GracefulStop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		logger.Warn("graceful stop timed out, forcing shutdown")
+		grpcServer.Stop()
 	}
 }

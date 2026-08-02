@@ -8,33 +8,23 @@ import (
 )
 
 type Config struct {
-	AMQPURL            string
-	QueueName          string
-	ListenerAMQPURL    string
-	ListenerQueueName  string
-	MaxConcurrentTasks int
+	ServerAddr        string
+	ListenAddr        string
+	ConcurrentWorkers int
 }
 
 func LoadConfig() (Config, error) {
 	cfg := Config{
-		AMQPURL:           os.Getenv("AMQP_URL"),
-		QueueName:         os.Getenv("AMQP_QUEUE_NAME"),
-		ListenerAMQPURL:   os.Getenv("LISTENER_AMQP_URL"),
-		ListenerQueueName: os.Getenv("LISTENER_AMQP_QUEUE_NAME"),
+		ServerAddr: os.Getenv("SERVER_ADDRESS"),
+		ListenAddr: os.Getenv("LISTEN_ADDRESS"),
 	}
 
 	var missing []string
-	if cfg.AMQPURL == "" {
-		missing = append(missing, "AMQP_URL")
+	if cfg.ServerAddr == "" {
+		missing = append(missing, "SERVER_ADDRESS")
 	}
-	if cfg.QueueName == "" {
-		missing = append(missing, "AMQP_QUEUE_NAME")
-	}
-	if cfg.ListenerQueueName == "" {
-		missing = append(missing, "LISTENER_AMQP_QUEUE_NAME")
-	}
-	if cfg.ListenerAMQPURL == "" {
-		cfg.ListenerAMQPURL = cfg.AMQPURL
+	if cfg.ListenAddr == "" {
+		missing = append(missing, "LISTEN_ADDRESS")
 	}
 
 	raw := os.Getenv("MAX_CONCURRENT_TASKS")
@@ -43,7 +33,7 @@ func LoadConfig() (Config, error) {
 	} else if n, err := strconv.Atoi(raw); err != nil || n <= 0 {
 		return cfg, fmt.Errorf("MAX_CONCURRENT_TASKS must be a positive integer, got %q", raw)
 	} else {
-		cfg.MaxConcurrentTasks = n
+		cfg.ConcurrentWorkers = n
 	}
 
 	if len(missing) > 0 {

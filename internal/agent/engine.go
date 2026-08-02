@@ -12,26 +12,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/touchmeangel/rox_orchestrator/rabbitclient"
+	taskpb "github.com/touchmeangel/rox_proto/rox/task/v1"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 )
-
-type coordinatorTask struct {
-	RunID     string `json:"run_id"`
-	SkipBuild bool   `json:"skip_build"`
-}
-
-type workerTask struct {
-	RunID     string          `json:"run_id"`
-	MissionID string          `json:"mission_id"`
-	Mission   json.RawMessage `json:"mission"`
-}
-
-type containerResult struct {
-	RunID    string          `json:"run_id"`
-	ExitCode int64           `json:"exit_code"`
-	Output   json.RawMessage `json:"output,omitempty"`
-	Error    string          `json:"error,omitempty"`
-}
 
 type Options struct {
 	RepoPath string
@@ -70,6 +56,28 @@ func parseMissions(data []byte) ([]missionSummary, error) {
 		return nil, fmt.Errorf("parsing coordinator results: %w", err)
 	}
 	return out.Missions, nil
+}
+
+type rawMissionsDoc struct {
+	Missions []json.RawMessage `json:"missions"`
+}
+
+func indexMissionsByID(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	var doc rawMissionsDoc
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parsing coordinator missions payload: %w", err)
+	}
+	index := make(map[string]json.RawMessage, len(doc.Missions))
+	for _, m := range doc.Missions {
+		var idOnly struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(m, &idOnly); err != nil || idOnly.ID == "" {
+			continue
+		}
+		index[idOnly.ID] = m
+	}
+	return index, nil
 }
 
 type aggregatedWorkerEntry struct {
@@ -145,16 +153,15 @@ func buildRunSummary(runID string, exitCode int, coordinatorRaw json.RawMessage,
 }
 
 type Engine struct {
-	cli              *rabbitclient.Client
+	conn             *grpc.ClientConn
+	client           taskpb.TaskServiceClient
 	activeWorkers    atomic.Int32
 	totalWorkers     atomic.Int32
 	completedWorkers atomic.Int32
 	currentPhase     atomic.Int32
 }
 
-func (e *Engine) ActiveWorkers() int32 {
-	return e.activeWorkers.Load()
-}
+func (e *Engine) ActiveWorkers() int32 { return e.activeWorkers.Load() }
 
 func (e *Engine) QueuedWorkers() int32 {
 	queued := e.totalWorkers.Load() - e.activeWorkers.Load() - e.completedWorkers.Load()
@@ -173,27 +180,27 @@ const (
 	PHASE_WORKING              = 5
 )
 
-func (e *Engine) Phase() int32 {
-	return e.currentPhase.Load()
-}
+func (e *Engine) Phase() int32          { return e.currentPhase.Load() }
+func (e *Engine) setPhase(status int32) { e.currentPhase.Store(status) }
 
-func (e *Engine) setPhase(status int32) {
-	e.currentPhase.Store(status)
-}
-
-func NewEngine(amqpURL, queueName string) (*Engine, error) {
-	cli, err := rabbitclient.Dial(amqpURL, queueName)
+func NewEngine(addr string) (*Engine, error) {
+	conn, err := grpc.NewClient(addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()), /// TODO: swap for real TLS creds in production
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                20 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("dialing task service at %s: %w", addr, err)
 	}
-	e := &Engine{cli: cli}
+	e := &Engine{conn: conn, client: taskpb.NewTaskServiceClient(conn)}
 	e.setPhase(PHASE_READY)
 	return e, nil
 }
 
-func (e *Engine) Close() error {
-	return e.cli.Close()
-}
+func (e *Engine) Close() error { return e.conn.Close() }
 
 func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, resultErr error) {
 	absPath, err := filepath.Abs(opts.RepoPath)
@@ -236,34 +243,28 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 
 	e.setPhase(PHASE_RUNNING_COORDINATOR)
 
-	coordRaw, err := e.cli.Call(ctx, "coordinator", coordinatorTask{
-		RunID:     runID,
-		SkipBuild: false,
+	coordResp, err := e.client.RunCoordinator(ctx, &taskpb.RunCoordinatorRequest{
+		RunId: runID,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("submitting coordinator task: %w", err)
+		return nil, fmt.Errorf("coordinator task failed: %w", err)
 	}
+	coordinatorRaw = coordResp.GetOutput()
 
-	var coordResult containerResult
-	if err := json.Unmarshal(coordRaw, &coordResult); err != nil {
-		return nil, fmt.Errorf("parsing coordinator task response: %w", err)
-	}
-	coordinatorRaw = coordResult.Output
-
-	if coordResult.ExitCode != 0 {
-		result = &Result{ExitCode: int(coordResult.ExitCode)}
+	if coordResp.GetExitCode() != 0 {
+		result = &Result{ExitCode: int(coordResp.GetExitCode())}
 		return result, nil
 	}
-	if coordResult.Error != "" {
-		return nil, fmt.Errorf("coordinator task reported error: %s", coordResult.Error)
+	if coordResp.GetError() != "" {
+		return nil, fmt.Errorf("coordinator task reported error: %s", coordResp.GetError())
 	}
 
 	e.setPhase(PHASE_LOADING_MISSIONS)
-	missions, err := parseMissions(coordResult.Output)
+	missions, err := parseMissions(coordResp.GetOutput())
 	if err != nil {
 		return nil, err
 	}
-	missionIndex, err := indexMissionsByID(coordResult.Output)
+	missionIndex, err := indexMissionsByID(coordResp.GetOutput())
 	if err != nil {
 		return nil, err
 	}
@@ -279,33 +280,8 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 		}
 	}
 
-	result = &Result{
-		ExitCode: overallExit,
-		Workers:  workers,
-	}
+	result = &Result{ExitCode: overallExit, Workers: workers}
 	return result, nil
-}
-
-type rawMissionsDoc struct {
-	Missions []json.RawMessage `json:"missions"`
-}
-
-func indexMissionsByID(raw json.RawMessage) (map[string]json.RawMessage, error) {
-	var doc rawMissionsDoc
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, fmt.Errorf("parsing coordinator missions payload: %w", err)
-	}
-	index := make(map[string]json.RawMessage, len(doc.Missions))
-	for _, m := range doc.Missions {
-		var idOnly struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(m, &idOnly); err != nil || idOnly.ID == "" {
-			continue
-		}
-		index[idOnly.ID] = m
-	}
-	return index, nil
 }
 
 func (e *Engine) runWorkers(ctx context.Context, runID string, missionIndex map[string]json.RawMessage, missions []missionSummary) []WorkerResult {
@@ -336,24 +312,15 @@ func (e *Engine) runWorkers(ctx context.Context, runID string, missionIndex map[
 				return
 			}
 
-			raw, err := e.cli.Call(ctx, "worker", workerTask{
-				RunID:     runID,
-				MissionID: m.ID,
+			resp, err := e.client.RunWorker(ctx, &taskpb.RunWorkerRequest{
+				RunId:     runID,
+				MissionId: m.ID,
 				Mission:   missionRaw,
 			})
 			if err != nil {
 				results[i] = WorkerResult{
 					MissionID: m.ID, Contract: m.Contract, Vulnerability: m.Vulnerability,
-					Err: fmt.Errorf("submitting worker task: %w", err),
-				}
-				return
-			}
-
-			var wr containerResult
-			if err := json.Unmarshal(raw, &wr); err != nil {
-				results[i] = WorkerResult{
-					MissionID: m.ID, Contract: m.Contract, Vulnerability: m.Vulnerability,
-					Err: fmt.Errorf("parsing worker task response: %w", err),
+					Err: fmt.Errorf("worker task failed: %w", err),
 				}
 				return
 			}
@@ -362,9 +329,9 @@ func (e *Engine) runWorkers(ctx context.Context, runID string, missionIndex map[
 				MissionID:     m.ID,
 				Contract:      m.Contract,
 				Vulnerability: m.Vulnerability,
-				ExitCode:      wr.ExitCode,
-				ResultsRaw:    wr.Output,
-				ReadErrMsg:    wr.Error,
+				ExitCode:      resp.GetExitCode(),
+				ResultsRaw:    resp.GetOutput(),
+				ReadErrMsg:    resp.GetError(),
 			}
 		}(i, m)
 	}
