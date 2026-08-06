@@ -159,6 +159,8 @@ github.com/touchmeangel/rox_proto v0.0.0-20260802194648-f515c39411d8 h1:rC5IPsGX
 github.com/touchmeangel/rox_proto v0.0.0-20260802194648-f515c39411d8/go.mod h1:bXAggi/BSa+8BahPjpyHu88y7K0AmJ+vyvMSGZdqf/Q=
 github.com/touchmeangel/rox_proto v0.0.0-20260802213005-d338d5e1d1c0 h1:pbRZJ0qKyf+eODYmQhsUkwO4rGJcdKaKgx4VQgTfjMI=
 github.com/touchmeangel/rox_proto v0.0.0-20260802213005-d338d5e1d1c0/go.mod h1:bXAggi/BSa+8BahPjpyHu88y7K0AmJ+vyvMSGZdqf/Q=
+github.com/touchmeangel/rox_proto v0.1.0 h1:nB5VTnRa8CDs8WEBT4Bjm/FjYSUxp0UsJ9JG5uOR3Ws=
+github.com/touchmeangel/rox_proto v0.1.0/go.mod h1:bXAggi/BSa+8BahPjpyHu88y7K0AmJ+vyvMSGZdqf/Q=
 github.com/xanzy/ssh-agent v0.3.3 h1:+/15pJfg/RsTxqYcX6fHqOXZwwMP+2VyYWJeWM2qQFM=
 github.com/xanzy/ssh-agent v0.3.3/go.mod h1:6dzNDKs0J9rVPHPhaGCukekBHKqfl+L3KghI1Bc68Uw=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=

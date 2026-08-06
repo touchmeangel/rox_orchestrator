@@ -4,11 +4,11 @@ import (
 	"context"
 
 	"github.com/touchmeangel/rox_orchestrator/internal/agent"
-	runpb "github.com/touchmeangel/rox_proto/rox/run/v1"
+	orchestratorpb "github.com/touchmeangel/rox_proto/rox/orchestrator/v1"
 )
 
-func Run(ctx context.Context, engine *agent.Engine, req *runpb.RunRequest) error {
-	_, err := engine.Execute(ctx, agent.Options{RepoPath: req.RepoPath})
+func Run(ctx context.Context, engine *agent.Engine, req *orchestratorpb.RunRequest) error {
+	_, err := engine.Execute(ctx, agent.Options{RepoPath: req.GetRepoPath()})
 	if err != nil {
 		return err
 	}

@@ -6,17 +6,17 @@ import (
 
 	"github.com/touchmeangel/rox_orchestrator/internal/agent"
 	"github.com/touchmeangel/rox_orchestrator/internal/tasks"
-	runpb "github.com/touchmeangel/rox_proto/rox/run/v1"
+	orchestratorpb "github.com/touchmeangel/rox_proto/rox/orchestrator/v1"
 	taskpb "github.com/touchmeangel/rox_proto/rox/task/v1"
 )
 
 type Server struct {
 	taskpb.UnimplementedTaskServiceServer
-	runpb.UnimplementedRunServiceServer
+	orchestratorpb.UnimplementedRunServiceServer
 
 	engine *agent.Engine
 	logger *slog.Logger
-	jobs   chan *runpb.RunRequest
+	jobs   chan *orchestratorpb.RunRequest
 }
 
 func NewServer(engine *agent.Engine, logger *slog.Logger, queueSize, workers int) *Server {
@@ -26,7 +26,7 @@ func NewServer(engine *agent.Engine, logger *slog.Logger, queueSize, workers int
 	s := &Server{
 		engine: engine,
 		logger: logger,
-		jobs:   make(chan *runpb.RunRequest, queueSize),
+		jobs:   make(chan *orchestratorpb.RunRequest, queueSize),
 	}
 	for i := 0; i < workers; i++ {
 		go s.worker()
