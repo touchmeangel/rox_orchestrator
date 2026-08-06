@@ -1,9 +1,9 @@
-project_name: rox
+project_name: rox_orchestrator
 
 builds:
-  - id: rox
-    main: ./cmd/listener
-    binary: rox
+  - id: rox_orchestrator
+    main: ./cmd/rox_orchestrator
+    binary: rox_orchestrator
     env:
       - CGO_ENABLED=0
     goos:
@@ -16,10 +16,10 @@ builds:
       - -s -w -X main.version={{.Version}}
 
 archives:
-  - id: rox
-    ids: [rox]
+  - id: rox_orchestrator
+    ids: [rox_orchestrator]
     formats: [tar.gz]
-    name_template: "rox_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "rox_orchestrator_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 checksum:
   name_template: "checksums.txt"
