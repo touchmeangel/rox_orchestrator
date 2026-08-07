@@ -15,8 +15,6 @@ import (
 	taskpb "github.com/touchmeangel/rox_proto/rox/task/v1"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/keepalive"
 )
 
 type Options struct {
@@ -183,24 +181,11 @@ const (
 func (e *Engine) Phase() int32          { return e.currentPhase.Load() }
 func (e *Engine) setPhase(status int32) { e.currentPhase.Store(status) }
 
-func NewEngine(addr string) (*Engine, error) {
-	conn, err := grpc.NewClient(addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()), /// TODO: swap for real TLS creds in production
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                20 * time.Second,
-			Timeout:             10 * time.Second,
-			PermitWithoutStream: true,
-		}),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("dialing task service at %s: %w", addr, err)
-	}
-	e := &Engine{conn: conn, client: taskpb.NewTaskServiceClient(conn)}
+func NewEngine(client taskpb.TaskServiceClient) (*Engine, error) {
+	e := &Engine{client: client}
 	e.setPhase(PHASE_READY)
 	return e, nil
 }
-
-func (e *Engine) Close() error { return e.conn.Close() }
 
 func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, resultErr error) {
 	absPath, err := filepath.Abs(opts.RepoPath)

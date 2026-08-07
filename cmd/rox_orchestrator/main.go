@@ -14,6 +14,7 @@ import (
 	"github.com/touchmeangel/rox_orchestrator/internal/rpc"
 	taskpb "github.com/touchmeangel/rox_proto/rox/task/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -25,12 +26,25 @@ func main() {
 		return
 	}
 
-	engine, err := agent.NewEngine(cfg.ServerAddr)
+	conn, err := grpc.NewClient(cfg.ServerAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()), /// TODO: swap for real TLS creds in production
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                20 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
+	if err != nil {
+		logger.Error("failed to dial task service", "addr", cfg.ServerAddr, "error", err)
+		return
+	}
+	defer func() { _ = conn.Close() }()
+
+	engine, err := agent.NewEngine(taskpb.NewTaskServiceClient(conn))
 	if err != nil {
 		logger.Error("client init failed", "error", err)
 		return
 	}
-	defer func() { _ = engine.Close() }()
 
 	lis, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
