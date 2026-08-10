@@ -1,6 +1,6 @@
 module github.com/touchmeangel/rox_orchestrator
 
-go 1.26.4
+go 1.26.5
 
 require github.com/docker/docker v27.3.1+incompatible
 
