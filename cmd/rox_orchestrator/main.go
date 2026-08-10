@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"log/slog"
 	"net"
 	"os"
@@ -9,6 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/touchmeangel/rox_models_go/coordinator"
+	"github.com/touchmeangel/rox_models_go/run"
+	"github.com/touchmeangel/rox_models_go/worker"
 	"github.com/touchmeangel/rox_orchestrator/config"
 	"github.com/touchmeangel/rox_orchestrator/internal/agent"
 	"github.com/touchmeangel/rox_orchestrator/internal/rpc"
@@ -17,6 +22,30 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
+
+func createPool(databaseURL string) (*pgxpool.Pool, error) {
+	poolCfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+
+	poolCfg.MaxConnLifetime = time.Hour
+	poolCfg.MaxConnIdleTime = 30 * time.Minute
+	poolCfg.HealthCheckPeriod = time.Minute
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		return nil, err
+	}
+
+	return pool, nil
+}
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -40,7 +69,17 @@ func main() {
 	}
 	defer func() { _ = conn.Close() }()
 
-	engine, err := agent.NewEngine(taskpb.NewTaskServiceClient(conn))
+	pool, err := createPool(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pool.Close()
+
+	runStore := run.NewRunStore(pool)
+	workerStore := worker.NewWorkerStore(pool)
+	coordinatorStore := coordinator.NewCoordinatorStore(pool)
+
+	engine, err := agent.NewEngine(taskpb.NewTaskServiceClient(conn), runStore, workerStore, coordinatorStore, logger)
 	if err != nil {
 		logger.Error("client init failed", "error", err)
 		return
