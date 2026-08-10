@@ -2,27 +2,25 @@ package agent
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
-	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"time"
 
+	"github.com/touchmeangel/rox_models_go/coordinator"
+	"github.com/touchmeangel/rox_models_go/run"
+	"github.com/touchmeangel/rox_models_go/worker"
 	taskpb "github.com/touchmeangel/rox_proto/rox/task/v1"
-
-	"google.golang.org/grpc"
 )
 
 type Options struct {
-	RepoPath string
+	RunID         string
+	WorkspaceName string
 }
 
 type Result struct {
-	ExitCode     int
 	Summary      json.RawMessage
 	Workers      []WorkerResult
 	UsageSummary *UsageSummary
@@ -32,7 +30,6 @@ type WorkerResult struct {
 	MissionID     string
 	Contract      string
 	Vulnerability string
-	ExitCode      int64
 	ResultsRaw    json.RawMessage
 	ReadErrMsg    string
 	Err           error
@@ -82,7 +79,6 @@ type aggregatedWorkerEntry struct {
 	MissionID     string          `json:"mission_id"`
 	Contract      string          `json:"contract"`
 	Vulnerability string          `json:"vulnerability"`
-	ExitCode      int64           `json:"exit_code"`
 	Success       bool            `json:"success"`
 	Error         string          `json:"error,omitempty"`
 	Results       json.RawMessage `json:"results,omitempty"`
@@ -91,18 +87,16 @@ type aggregatedWorkerEntry struct {
 type runSummary struct {
 	RunID       string                  `json:"run_id"`
 	GeneratedAt string                  `json:"generated_at"`
-	ExitCode    int                     `json:"exit_code"`
 	Error       string                  `json:"error,omitempty"`
 	Coordinator json.RawMessage         `json:"coordinator,omitempty"`
 	Workers     []aggregatedWorkerEntry `json:"workers"`
 	Usage       *UsageSummary           `json:"usage_summary,omitempty"`
 }
 
-func buildRunSummary(runID string, exitCode int, coordinatorRaw json.RawMessage, workers []WorkerResult, runErr error) (json.RawMessage, *UsageSummary, error) {
+func buildRunSummary(runID string, coordinatorRaw json.RawMessage, workers []WorkerResult, runErr error) (json.RawMessage, *UsageSummary, error) {
 	summary := runSummary{
 		RunID:       runID,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		ExitCode:    exitCode,
 	}
 	if runErr != nil {
 		summary.Error = runErr.Error()
@@ -120,8 +114,7 @@ func buildRunSummary(runID string, exitCode int, coordinatorRaw json.RawMessage,
 			MissionID:     w.MissionID,
 			Contract:      w.Contract,
 			Vulnerability: w.Vulnerability,
-			ExitCode:      w.ExitCode,
-			Success:       w.Err == nil && w.ExitCode == 0,
+			Success:       w.Err == nil,
 		}
 		switch {
 		case w.Err != nil:
@@ -151,72 +144,41 @@ func buildRunSummary(runID string, exitCode int, coordinatorRaw json.RawMessage,
 }
 
 type Engine struct {
-	conn             *grpc.ClientConn
 	client           taskpb.TaskServiceClient
-	activeWorkers    atomic.Int32
-	totalWorkers     atomic.Int32
-	completedWorkers atomic.Int32
-	currentPhase     atomic.Int32
+	runStore         *run.RunStore
+	workerStore      *worker.WorkerStore
+	coordinatorStore *coordinator.CoordinatorStore
+	logger           *slog.Logger
 }
 
-func (e *Engine) ActiveWorkers() int32 { return e.activeWorkers.Load() }
-
-func (e *Engine) QueuedWorkers() int32 {
-	queued := e.totalWorkers.Load() - e.activeWorkers.Load() - e.completedWorkers.Load()
-	if queued < 0 {
-		return 0
+func NewEngine(client taskpb.TaskServiceClient, runStore *run.RunStore, workerStore *worker.WorkerStore, coordinatorStore *coordinator.CoordinatorStore, logger *slog.Logger) (*Engine, error) {
+	if logger == nil {
+		logger = slog.Default()
 	}
-	return queued
-}
-
-const (
-	PHASE_INITIALIZING         = 0
-	PHASE_READY                = 1
-	PHASE_PREPARING_REPO_SPECS = 2
-	PHASE_RUNNING_COORDINATOR  = 3
-	PHASE_LOADING_MISSIONS     = 4
-	PHASE_WORKING              = 5
-)
-
-func (e *Engine) Phase() int32          { return e.currentPhase.Load() }
-func (e *Engine) setPhase(status int32) { e.currentPhase.Store(status) }
-
-func NewEngine(client taskpb.TaskServiceClient) (*Engine, error) {
-	e := &Engine{client: client}
-	e.setPhase(PHASE_READY)
-	return e, nil
+	return &Engine{
+		client: client, runStore: runStore, workerStore: workerStore,
+		coordinatorStore: coordinatorStore, logger: logger,
+	}, nil
 }
 
 func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, resultErr error) {
-	absPath, err := filepath.Abs(opts.RepoPath)
-	if err != nil {
-		return nil, fmt.Errorf("invalid exploration target path: %w", err)
-	}
-
-	e.setPhase(PHASE_PREPARING_REPO_SPECS)
-	slug := e.getRepoSpecs(absPath)
-
-	randBytes := make([]byte, 4)
-	_, _ = rand.Read(randBytes)
-	randomPart := hex.EncodeToString(randBytes)
-	runID := fmt.Sprintf("%s-%d-%s", slug, time.Now().UnixNano(), randomPart)
+	runID := opts.RunID
+	log := e.logger.With("run_id", runID)
 
 	var (
 		coordinatorRaw json.RawMessage
 		workers        []WorkerResult
 	)
 
-	defer func() {
-		exitCode := 1
-		if result != nil {
-			exitCode = result.ExitCode
-		}
+	log.Info("run started", "workspace", opts.WorkspaceName)
 
-		summaryData, usage, sumErr := buildRunSummary(runID, exitCode, coordinatorRaw, workers, resultErr)
+	defer func() {
+		summaryData, usage, sumErr := buildRunSummary(runID, coordinatorRaw, workers, resultErr)
 		if result == nil {
-			result = &Result{ExitCode: exitCode}
+			result = &Result{}
 		}
 		if sumErr != nil {
+			log.Error("failed to build run summary", "error", sumErr)
 			if resultErr == nil {
 				resultErr = fmt.Errorf("building run summary: %w", sumErr)
 			}
@@ -224,48 +186,71 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 		}
 		result.Summary = summaryData
 		result.UsageSummary = usage
+
+		if resultErr != nil {
+			log.Error("run finished with error", "error", resultErr)
+		} else {
+			log.Info("run finished")
+		}
 	}()
 
-	e.setPhase(PHASE_RUNNING_COORDINATOR)
+	if _, err := e.runStore.UpdateStatus(ctx, runID, run.StatusRunningCoordinator); err != nil {
+		return nil, fmt.Errorf("update run status to running_coordinator: %w", err)
+	}
 
-	coordResp, err := e.client.RunCoordinator(ctx, &taskpb.RunCoordinatorRequest{
-		RunId: runID,
-	})
+	coord, err := e.coordinatorStore.CreateCoordinator(ctx, runID)
 	if err != nil {
+		log.Error("failed to create coordinator row", "error", err)
+		return nil, fmt.Errorf("create coordinator: %w", err)
+	}
+	clog := log.With("coordinator_id", coord.ID)
+
+	if _, err := e.coordinatorStore.UpdateActive(ctx, coord.ID, true); err != nil {
+		clog.Error("failed to mark coordinator active", "error", err)
+		return nil, fmt.Errorf("mark coordinator active: %w", err)
+	}
+
+	coordResp, err := e.client.RunCoordinator(ctx, &taskpb.RunCoordinatorRequest{RunId: runID})
+	if err != nil {
+		clog.Error("coordinator task failed", "error", err)
+		if _, cErr := e.coordinatorStore.UpdateCompleted(ctx, coord.ID, err.Error(), true); cErr != nil {
+			clog.Error("failed to record coordinator completion", "error", cErr)
+		}
 		return nil, fmt.Errorf("coordinator task failed: %w", err)
 	}
 	coordinatorRaw = coordResp.GetOutput()
 
-	if coordResp.GetExitCode() != 0 {
-		result = &Result{ExitCode: int(coordResp.GetExitCode())}
-		return result, nil
-	}
 	if coordResp.GetError() != "" {
+		clog.Error("coordinator reported error", "error", coordResp.GetError(), "retriable", coordResp.GetRetriable())
+		if _, cErr := e.coordinatorStore.UpdateCompleted(ctx, coord.ID, coordResp.GetError(), coordResp.GetRetriable()); cErr != nil {
+			clog.Error("failed to record coordinator completion", "error", cErr)
+		}
 		return nil, fmt.Errorf("coordinator task reported error: %s", coordResp.GetError())
 	}
 
-	e.setPhase(PHASE_LOADING_MISSIONS)
+	if _, cErr := e.coordinatorStore.UpdateCompleted(ctx, coord.ID, "", false); cErr != nil {
+		clog.Error("failed to record coordinator completion", "error", cErr)
+	}
+	clog.Info("coordinator completed")
+
 	missions, err := parseMissions(coordResp.GetOutput())
 	if err != nil {
+		clog.Error("failed to parse coordinator missions", "error", err)
 		return nil, err
 	}
 	missionIndex, err := indexMissionsByID(coordResp.GetOutput())
 	if err != nil {
+		clog.Error("failed to index coordinator missions", "error", err)
 		return nil, err
 	}
 
-	e.setPhase(PHASE_WORKING)
+	if _, err := e.runStore.UpdateStatus(ctx, runID, run.StatusRunningWorkers); err != nil {
+		return nil, fmt.Errorf("update run status to running_workers: %w", err)
+	}
+	log.Info("dispatching workers", "mission_count", len(missions))
 	workers = e.runWorkers(ctx, runID, missionIndex, missions)
 
-	overallExit := 0
-	for _, w := range workers {
-		if w.Err != nil || w.ExitCode != 0 {
-			overallExit = 1
-			break
-		}
-	}
-
-	result = &Result{ExitCode: overallExit, Workers: workers}
+	result = &Result{Workers: workers}
 	return result, nil
 }
 
@@ -274,35 +259,69 @@ func (e *Engine) runWorkers(ctx context.Context, runID string, missionIndex map[
 		return nil
 	}
 
-	e.totalWorkers.Store(int32(len(missions)))
-	e.completedWorkers.Store(0)
-
 	results := make([]WorkerResult, len(missions))
 	var wg sync.WaitGroup
 
 	for i, m := range missions {
+		mlog := e.logger.With("run_id", runID, "mission_id", m.ID)
+
+		w, err := e.workerStore.CreateWorker(ctx, runID, m.ID)
+		if err != nil {
+			mlog.Error("failed to create worker row in DB", "error", err)
+			results[i] = WorkerResult{
+				MissionID: m.ID, Contract: m.Contract, Vulnerability: m.Vulnerability,
+				Err: fmt.Errorf("failed to create worker row in DB: %w", err),
+			}
+			continue
+		}
+
 		wg.Add(1)
-		go func(i int, m missionSummary) {
-			e.activeWorkers.Add(1)
-			defer e.activeWorkers.Add(-1)
-			defer e.completedWorkers.Add(1)
+		go func(i int, m missionSummary, workerID string) {
 			defer wg.Done()
+			wlog := mlog.With("worker_id", workerID)
+
+			if ok, err := e.workerStore.UpdateActive(ctx, workerID, true); err != nil {
+				wlog.Error("failed to mark worker active in DB", "error", err)
+				if _, cErr := e.workerStore.UpdateCompleted(ctx, workerID, err.Error(), true); cErr != nil {
+					wlog.Error("failed to record worker completion after activation failure", "error", cErr)
+				}
+				results[i] = WorkerResult{
+					MissionID: m.ID, Contract: m.Contract, Vulnerability: m.Vulnerability,
+					Err: fmt.Errorf("failed to mark worker active in DB: %w", err),
+				}
+				return
+			} else if !ok {
+				err := fmt.Errorf("failed to mark worker active in DB: worker %s not found", workerID)
+				wlog.Error(err.Error())
+				results[i] = WorkerResult{
+					MissionID: m.ID, Contract: m.Contract, Vulnerability: m.Vulnerability,
+					Err: err,
+				}
+				return
+			}
 
 			missionRaw, ok := missionIndex[m.ID]
 			if !ok {
+				err := fmt.Errorf("mission %q not found in coordinator output", m.ID)
+				wlog.Error("mission missing from coordinator output")
+				if _, cErr := e.workerStore.UpdateCompleted(ctx, workerID, err.Error(), false); cErr != nil {
+					wlog.Error("failed to record worker completion", "error", cErr)
+				}
 				results[i] = WorkerResult{
 					MissionID: m.ID, Contract: m.Contract, Vulnerability: m.Vulnerability,
-					Err: fmt.Errorf("mission %q not found in coordinator output", m.ID),
+					Err: err,
 				}
 				return
 			}
 
 			resp, err := e.client.RunWorker(ctx, &taskpb.RunWorkerRequest{
-				RunId:     runID,
-				MissionId: m.ID,
-				Mission:   missionRaw,
+				RunId: runID, MissionId: m.ID, Mission: missionRaw,
 			})
 			if err != nil {
+				wlog.Error("worker task failed", "error", err)
+				if _, cErr := e.workerStore.UpdateCompleted(ctx, workerID, err.Error(), true); cErr != nil {
+					wlog.Error("failed to record worker completion", "error", cErr)
+				}
 				results[i] = WorkerResult{
 					MissionID: m.ID, Contract: m.Contract, Vulnerability: m.Vulnerability,
 					Err: fmt.Errorf("worker task failed: %w", err),
@@ -310,15 +329,18 @@ func (e *Engine) runWorkers(ctx context.Context, runID string, missionIndex map[
 				return
 			}
 
-			results[i] = WorkerResult{
-				MissionID:     m.ID,
-				Contract:      m.Contract,
-				Vulnerability: m.Vulnerability,
-				ExitCode:      resp.GetExitCode(),
-				ResultsRaw:    resp.GetOutput(),
-				ReadErrMsg:    resp.GetError(),
+			if _, cErr := e.workerStore.UpdateCompleted(ctx, workerID, resp.GetError(), resp.GetRetriable()); cErr != nil {
+				wlog.Error("failed to record worker completion", "error", cErr)
 			}
-		}(i, m)
+			if resp.GetError() != "" {
+				wlog.Warn("worker completed with error", "error", resp.GetError(), "retriable", resp.GetRetriable())
+			}
+
+			results[i] = WorkerResult{
+				MissionID: m.ID, Contract: m.Contract, Vulnerability: m.Vulnerability,
+				ResultsRaw: resp.GetOutput(), ReadErrMsg: resp.GetError(),
+			}
+		}(i, m, w.ID)
 	}
 
 	wg.Wait()

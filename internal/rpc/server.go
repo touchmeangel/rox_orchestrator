@@ -39,7 +39,7 @@ func (s *Server) worker() {
 		if err := tasks.Run(context.Background(), s.engine, req); err != nil {
 			s.logger.Error("run failed",
 				"run_id", req.GetRunId(),
-				"repo_path", req.GetRepoPath(),
+				"workspace", req.GetWorkspaceName(),
 				"error", err,
 			)
 		}
