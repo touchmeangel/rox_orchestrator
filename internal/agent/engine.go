@@ -221,8 +221,9 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 	coordinatorRaw = coordResp.GetOutput()
 
 	if coordResp.GetError() != "" {
-		clog.Error("coordinator reported error", "error", coordResp.GetError(), "retriable", coordResp.GetRetriable())
-		if _, cErr := e.coordinatorStore.UpdateCompleted(ctx, coord.ID, coordResp.GetError(), coordResp.GetRetriable()); cErr != nil {
+		retriable := true
+		clog.Error("coordinator reported error", "error", coordResp.GetError(), "retriable", retriable)
+		if _, cErr := e.coordinatorStore.UpdateCompleted(ctx, coord.ID, coordResp.GetError(), retriable); cErr != nil {
 			clog.Error("failed to record coordinator completion", "error", cErr)
 		}
 		return nil, fmt.Errorf("coordinator task reported error: %s", coordResp.GetError())
@@ -329,11 +330,13 @@ func (e *Engine) runWorkers(ctx context.Context, runID string, missionIndex map[
 				return
 			}
 
-			if _, cErr := e.workerStore.UpdateCompleted(ctx, workerID, resp.GetError(), resp.GetRetriable()); cErr != nil {
-				wlog.Error("failed to record worker completion", "error", cErr)
-			}
+			retriable := false
 			if resp.GetError() != "" {
-				wlog.Warn("worker completed with error", "error", resp.GetError(), "retriable", resp.GetRetriable())
+				retriable = true
+				wlog.Warn("worker completed with error", "error", resp.GetError(), "retriable", retriable)
+			}
+			if _, cErr := e.workerStore.UpdateCompleted(ctx, workerID, resp.GetError(), retriable); cErr != nil {
+				wlog.Error("failed to record worker completion", "error", cErr)
 			}
 
 			results[i] = WorkerResult{
