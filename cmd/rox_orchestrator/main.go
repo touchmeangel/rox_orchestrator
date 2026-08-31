@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/touchmeangel/rox_models_go/coordinator"
-	"github.com/touchmeangel/rox_models_go/run"
-	"github.com/touchmeangel/rox_models_go/worker"
+	"github.com/touchmeangel/rox_models/coordinator"
+	"github.com/touchmeangel/rox_models/run"
+	"github.com/touchmeangel/rox_models/worker"
 	"github.com/touchmeangel/rox_orchestrator/config"
 	"github.com/touchmeangel/rox_orchestrator/internal/agent"
 	"github.com/touchmeangel/rox_orchestrator/internal/rpc"
