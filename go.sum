@@ -49,8 +49,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/touchmeangel/rox_models v0.2.24 h1:gOAmjugZ+QOITvwq7DGcxYUirw6iPsgZ5Lb2NNh9ELU=
-github.com/touchmeangel/rox_models v0.2.24/go.mod h1:PoY5Yk4mhOsbQPmp3g8gtNQmB2eg9BRybuAq0f3UgQs=
+github.com/touchmeangel/rox_models v0.2.25 h1:t94jp2clkD8V9S3v0pIcwzce95mijthM3sk8UxZwzjE=
+github.com/touchmeangel/rox_models v0.2.25/go.mod h1:PoY5Yk4mhOsbQPmp3g8gtNQmB2eg9BRybuAq0f3UgQs=
 github.com/touchmeangel/rox_proto v0.2.9 h1:5KdYvm+fy1MrFfWCFJP8y0s3zj1fDSSexgehCYXXnJw=
 github.com/touchmeangel/rox_proto v0.2.9/go.mod h1:bXAggi/BSa+8BahPjpyHu88y7K0AmJ+vyvMSGZdqf/Q=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=

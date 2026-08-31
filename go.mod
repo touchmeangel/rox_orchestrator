@@ -4,7 +4,7 @@ go 1.26.5
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/touchmeangel/rox_models v0.2.24
+	github.com/touchmeangel/rox_models v0.2.25
 	github.com/touchmeangel/rox_proto v0.2.9
 	google.golang.org/grpc v1.83.0
 	google.golang.org/protobuf v1.36.11
