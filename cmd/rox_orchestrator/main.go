@@ -109,7 +109,7 @@ func main() {
 	defer stop()
 
 	go func() {
-		logger.Info("ready to accept tasks", "addr", cfg.ListenAddr, "max_concurrent", cfg.ConcurrentWorkers)
+		logger.Info("ready to work on tasks", "addr", cfg.ListenAddr, "max_concurrent", cfg.ConcurrentWorkers)
 		if err := grpcServer.Serve(lis); err != nil {
 			logger.Error("grpc server exited with error", "error", err)
 		}
