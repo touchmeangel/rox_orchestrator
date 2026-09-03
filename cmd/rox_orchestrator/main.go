@@ -17,6 +17,7 @@ import (
 	"github.com/touchmeangel/rox_orchestrator/config"
 	"github.com/touchmeangel/rox_orchestrator/internal/agent"
 	"github.com/touchmeangel/rox_orchestrator/internal/rpc"
+	orchestratorpb "github.com/touchmeangel/rox_proto/rox/orchestrator/v1"
 	taskpb "github.com/touchmeangel/rox_proto/rox/task/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -103,7 +104,7 @@ func main() {
 	)
 
 	srv := rpc.NewServer(engine, logger, cfg.ConcurrentWorkers, cfg.ConcurrentWorkers)
-	taskpb.RegisterTaskServiceServer(grpcServer, srv)
+	orchestratorpb.RegisterRunServiceServer(grpcServer, srv)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
