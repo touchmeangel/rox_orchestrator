@@ -8,7 +8,7 @@ import (
 )
 
 func Run(ctx context.Context, engine *agent.Engine, req *orchestratorpb.RunRequest) error {
-	_, err := engine.Execute(ctx, agent.Options{WorkspaceName: req.GetWorkspaceName()})
+	_, err := engine.Execute(ctx, agent.Options{RunID: req.GetRunId(), UserID: req.GetUserId(), WorkspaceName: req.GetWorkspaceName()})
 	if err != nil {
 		return err
 	}

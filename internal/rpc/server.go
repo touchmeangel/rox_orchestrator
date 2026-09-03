@@ -7,11 +7,9 @@ import (
 	"github.com/touchmeangel/rox_orchestrator/internal/agent"
 	"github.com/touchmeangel/rox_orchestrator/internal/tasks"
 	orchestratorpb "github.com/touchmeangel/rox_proto/rox/orchestrator/v1"
-	taskpb "github.com/touchmeangel/rox_proto/rox/task/v1"
 )
 
 type Server struct {
-	taskpb.UnimplementedTaskServiceServer
 	orchestratorpb.UnimplementedRunServiceServer
 
 	engine *agent.Engine

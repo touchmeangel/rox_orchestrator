@@ -17,6 +17,7 @@ import (
 
 type Options struct {
 	RunID         string
+	UserID        string
 	WorkspaceName string
 }
 
@@ -163,6 +164,8 @@ func NewEngine(client taskpb.TaskServiceClient, runStore *run.RunStore, workerSt
 
 func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, resultErr error) {
 	runID := opts.RunID
+	userID := opts.UserID
+	workspaceName := opts.WorkspaceName
 	log := e.logger.With("run_id", runID)
 
 	var (
@@ -170,7 +173,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 		workers        []WorkerResult
 	)
 
-	log.Info("run started", "workspace", opts.WorkspaceName)
+	log.Info("run started", "workspace", workspaceName)
 
 	defer func() {
 		summaryData, usage, sumErr := buildRunSummary(runID, coordinatorRaw, workers, resultErr)
@@ -210,7 +213,7 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 		return nil, fmt.Errorf("mark coordinator active: %w", err)
 	}
 
-	coordResp, err := e.client.RunCoordinator(ctx, &taskpb.RunCoordinatorRequest{RunId: runID})
+	coordResp, err := e.client.RunCoordinator(ctx, &taskpb.RunCoordinatorRequest{RunId: runID, UserId: userID, WorkspaceName: workspaceName, CoordinatorId: coord.ID})
 	if err != nil {
 		clog.Error("coordinator task failed", "error", err)
 		if _, cErr := e.coordinatorStore.UpdateCompleted(ctx, coord.ID, err.Error(), true); cErr != nil {
@@ -249,13 +252,13 @@ func (e *Engine) Execute(ctx context.Context, opts Options) (result *Result, res
 		return nil, fmt.Errorf("update run status to running_workers: %w", err)
 	}
 	log.Info("dispatching workers", "mission_count", len(missions))
-	workers = e.runWorkers(ctx, runID, missionIndex, missions)
+	workers = e.runWorkers(ctx, runID, userID, workspaceName, missionIndex, missions)
 
 	result = &Result{Workers: workers}
 	return result, nil
 }
 
-func (e *Engine) runWorkers(ctx context.Context, runID string, missionIndex map[string]json.RawMessage, missions []missionSummary) []WorkerResult {
+func (e *Engine) runWorkers(ctx context.Context, runID string, userID string, workspaceName string, missionIndex map[string]json.RawMessage, missions []missionSummary) []WorkerResult {
 	if len(missions) == 0 {
 		return nil
 	}
@@ -316,7 +319,7 @@ func (e *Engine) runWorkers(ctx context.Context, runID string, missionIndex map[
 			}
 
 			resp, err := e.client.RunWorker(ctx, &taskpb.RunWorkerRequest{
-				RunId: runID, MissionId: m.ID, Mission: missionRaw,
+				RunId: runID, UserId: userID, WorkspaceName: workspaceName, MissionId: m.ID, Mission: missionRaw,
 			})
 			if err != nil {
 				wlog.Error("worker task failed", "error", err)

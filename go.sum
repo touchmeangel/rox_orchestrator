@@ -55,6 +55,8 @@ github.com/touchmeangel/rox_proto v0.2.9 h1:5KdYvm+fy1MrFfWCFJP8y0s3zj1fDSSexgeh
 github.com/touchmeangel/rox_proto v0.2.9/go.mod h1:bXAggi/BSa+8BahPjpyHu88y7K0AmJ+vyvMSGZdqf/Q=
 github.com/touchmeangel/rox_proto v0.2.10 h1:ZqwIwlpqXWJSUJQRkwQbsdaX4m6xDs2+uYUX1VoBXQ4=
 github.com/touchmeangel/rox_proto v0.2.10/go.mod h1:bXAggi/BSa+8BahPjpyHu88y7K0AmJ+vyvMSGZdqf/Q=
+github.com/touchmeangel/rox_proto v0.2.11 h1:YO6Ssnz22vg5JtP1gMRch9wQI+Ul/oH0RIyfvil6M0E=
+github.com/touchmeangel/rox_proto v0.2.11/go.mod h1:bXAggi/BSa+8BahPjpyHu88y7K0AmJ+vyvMSGZdqf/Q=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/otel v1.44.0 h1:JjwHmHpA4iZ3wBxluu2fbbE7j4kqlE8jXyAyPXH7HqU=
