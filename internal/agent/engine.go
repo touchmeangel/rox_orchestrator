@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -47,6 +48,9 @@ type coordinatorOutput struct {
 }
 
 func parseMissions(data []byte) ([]missionSummary, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, fmt.Errorf("parsing coordinator results: coordinator produced no output (it likely crashed or was killed before writing results)")
+	}
 	var out coordinatorOutput
 	if err := json.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("parsing coordinator results: %w", err)
@@ -59,6 +63,9 @@ type rawMissionsDoc struct {
 }
 
 func indexMissionsByID(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, fmt.Errorf("parsing coordinator missions payload: coordinator produced no output")
+	}
 	var doc rawMissionsDoc
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("parsing coordinator missions payload: %w", err)
